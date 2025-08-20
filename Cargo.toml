@@ -2,5 +2,10 @@
 name = "vector"
 version = "0.1.0"
 edition = "2024"
+authors = [ "prateek nanhorya <prateek.n2000@ymail.com>" ]
+readme = "README.md"
 
 [dependencies]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "docs-header.html"]
