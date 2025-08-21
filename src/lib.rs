@@ -111,11 +111,25 @@ impl<T: Float> Complex<T> {
         self.1
     }
     
-    fn conjugate(&self) -> Self {
-        Self(self.0, -self.1)
+    /// ### Conjugate
+    /// Returns the conjugate of the complex number
+    ///
+    /// #### Example
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let complex = Complex::from((3., 4.));
+    /// assert_eq!(complex.conjugate(), Complex::from((3., -4.)))
+    /// ```
+    pub fn conjugate(mut self) -> Self {
+        self.1 = -self.1;
+        self
     }
     
+    /// ### Magnitude
     /// Calculates the magnitude of the complex number $a + ib$ given by:$$a^2 + b^2$$
+    ///
+    /// #### Example
     /// ```rust
     /// use vector::Complex;
     ///
@@ -169,6 +183,14 @@ impl<T: Float> std::ops::DivAssign for Complex<T> {
 impl<T: Float> std::ops::Mul for Complex<T> {
     type Output = Self;
     
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// assert_eq!(a * b, Complex::from((-5., 10.)))
+    /// ```
     fn mul(mut self, other: Complex<T>) -> Self::Output {
         self *= other;
         self
@@ -176,6 +198,16 @@ impl<T: Float> std::ops::Mul for Complex<T> {
 }
 
 impl<T: Float> std::ops::MulAssign for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// a *= b;
+    ///
+    /// assert_eq!(a, Complex::from((-5., 10.)))
+    /// ```
     fn mul_assign(&mut self, rhs: Self) {
         *self = Self(self.0 * rhs.0 - self.1 * rhs.1, self.0 * rhs.1 + self.1 * rhs.0);
     }
@@ -184,6 +216,14 @@ impl<T: Float> std::ops::MulAssign for Complex<T> {
 impl<T: Float> std::ops::Add for Complex<T> {
     type Output = Self;
     
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// assert_eq!(a + b, Complex::from((4., 6.)))
+    /// ```
     fn add(mut self, other: Complex<T>) -> Self::Output {
         self += other;
         self
@@ -191,6 +231,16 @@ impl<T: Float> std::ops::Add for Complex<T> {
 }
 
 impl<T: Float> std::ops::AddAssign for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// a += b;
+    ///
+    /// assert_eq!(a, Complex::from((4., 6.)))
+    /// ```
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
         self.1 += rhs.1;
@@ -206,6 +256,14 @@ impl<T: Float> std::iter::Sum for Complex<T> {
 impl<T: Float> std::ops::Sub for Complex<T> {
     type Output = Self;
     
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// assert_eq!(a - b, Complex::from((-2., -2.)))
+    /// ```
     fn sub(mut self, other: Complex<T>) -> Self::Output {
         self -= other;
         self
@@ -213,15 +271,34 @@ impl<T: Float> std::ops::Sub for Complex<T> {
 }
 
 impl<T: Float> std::ops::SubAssign for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// a -= b;
+    /// assert_eq!(a, Complex::from((-2., -2.)))
+    /// ```
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0;
         self.1 -= rhs.1;
     }
 }
 
+/// ### Negate
+/// Negates the real and imaginary part of the complex number
 impl<T: Float> std::ops::Neg for Complex<T> {
     type Output = Self;
 
+    /// #### Example
+    ///
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let complex = Complex::from((1., -2.));
+    /// assert_eq!(-complex, Complex::from((-1., 2.)));
+    /// ```
     fn neg(self) -> Self::Output {
         Self(-self.0, -self.1)
     }
@@ -246,7 +323,23 @@ impl<T: Float> From<(T, T)> for Complex<T> {
 }
 
 
+/// ### Display
 impl<T: Float> std::fmt::Display for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut complex = Complex::from(1.0);
+    /// assert_eq!(complex.to_string(), "1".to_string());
+    /// 
+    /// complex = Complex::from(1.33);
+    /// assert_eq!(complex.to_string(), "1.33".to_string());
+    ///      
+    /// complex = Complex::from((1.33, 20.));
+    /// assert_eq!(complex.to_string(), "1.33 + 20j".to_string());
+    ///      
+    /// complex = Complex::from((1.33, 20.55));
+    /// assert_eq!(complex.to_string(), "1.33 + 20.55j".to_string());
+    /// ```
    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "{}", self.0)?;
         
@@ -317,11 +410,6 @@ pub mod matrix {
             })
         }
 
-        pub fn norm(&self) -> T {
-            let sum = self.0.iter().flat_map(|r| r.iter()).map(Complex::to_owned).sum::<Complex<T>>();
-            sum.real().sqrt()
-        }
-
         /// Calculates the inner product of two matrix.
         /// `x.inner_product(y)` is denoted as $<x, y>$.
         /// For matrices, the inner product is: *<x, y> = trace(x^T \* y)*
@@ -331,8 +419,46 @@ pub mod matrix {
             mat.trace()
         }
 
-        fn rank() -> usize {
-            todo!()
+        /// ## Rank
+        /// Calculates the rank of the given matrix. This implies the number of independent columns/rows.
+        ///
+        /// ### Example
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let a = Matrix::from([[10., 20., 10.], [-20., -30., 10.], [30., 50., 0.]]);
+        ///
+        /// assert_eq!(a.rank(), 2);
+        /// ```
+        pub fn rank(&self) -> usize {
+            let mut matrix = self.0;
+            let mut rank = N;
+
+            let mut i = 0;
+            let zero = T::zero().into();
+            while i < rank {
+                if matrix[i][i] != zero {
+                    for r in (0..M).filter(|&r| r != i) {
+                        let mult = matrix[r][i] / matrix[i][i];
+                        (0..rank).for_each(|c| matrix[r][c] -= mult * matrix[i][c]);
+                    }
+                    i += 1;
+                }
+                else {
+                    // find non-zero row
+                    match (i + 1..N).find(|&r| matrix[r][i] != zero) {
+                        Some(r) => (0..rank).for_each(|c| (matrix[r][c], matrix[i][c]) = (matrix[i][c], matrix[r][c])),
+                        None => {
+                            // reduce rank
+                            rank -= 1;
+                            // copy the last column here
+                            (0..M).for_each(|r| matrix[r][i] = matrix[r][rank]);
+                        },
+                    }
+                }
+            }
+            
+            rank
         }
 
         /// rounds off the values of the matrix
@@ -726,91 +852,5 @@ pub mod matrix {
         fn neg(self) -> Self::Output {
             Self(self.0.map(|r| r.map(Complex::neg)))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Complex;
-    
-    #[test]
-    fn test_complex_display() {
-        let mut complex = Complex::from(1.0);
-        assert_eq!(complex.to_string(), "1".to_string());
-        
-        complex = Complex::from(1.33);
-        assert_eq!(complex.to_string(), "1.33".to_string());
-        
-        complex = Complex::from((1.33, 20.));
-        assert_eq!(complex.to_string(), "1.33 + 20j".to_string());
-        
-        complex = Complex::from((1.33, 20.55));
-        assert_eq!(complex.to_string(), "1.33 + 20.55j".to_string());
-    }
-    
-    #[test]
-    fn test_complex_mul() {
-        let a = Complex::from((1., 2.));
-        let b = Complex::from((3., 4.));
-        
-        assert_eq!(a * b, Complex::from((-5., 10.)))
-    }
-
-    #[test]
-    fn test_complex_mul_assign() {
-        let mut a = Complex::from((1., 2.));
-        let b = Complex::from((3., 4.));
-
-        a *= b;
-        
-        assert_eq!(a, Complex::from((-5., 10.)))
-    }
-    
-    #[test]
-    fn test_complex_add() {
-        let a = Complex::from((1., 2.));
-        let b = Complex::from((3., 4.));
-        
-        assert_eq!(a + b, Complex::from((4., 6.)))
-    }
-    
-    #[test]
-    fn test_complex_add_assign() {
-        let mut a = Complex::from((1., 2.));
-        let b = Complex::from((3., 4.));
-
-        a += b;
-        
-        assert_eq!(a, Complex::from((4., 6.)))
-    }
-    
-    #[test]
-    fn test_complex_sub() {
-        let a = Complex::from((1., 2.));
-        let b = Complex::from((3., 4.));
-        
-        assert_eq!(a - b, Complex::from((-2., -2.)))
-    }
-
-    #[test]
-    fn test_complex_sub_assign() {
-        let mut a = Complex::from((1., 2.));
-        let b = Complex::from((3., 4.));
-
-        a -= b;
-        
-        assert_eq!(a, Complex::from((-2., -2.)))
-    }
-
-    #[test]
-    fn test_complex_neg() {
-        let complex = Complex::from((1., -2.));
-        assert_eq!(-complex, Complex::from((-1., 2.)));
-    }
-    
-    #[test]
-    fn test_complex_conjugate() {
-        let complex = Complex::from((3., 4.));
-        assert_eq!(complex.conjugate(), Complex::from((3., -4.)))
     }
 }
