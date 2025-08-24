@@ -7,5 +7,7 @@ readme = "README.md"
 
 [dependencies]
 
+[dev-dependencies]
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs", "--html-in-header", "docs-header.html"]

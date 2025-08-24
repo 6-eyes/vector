@@ -1,7 +1,9 @@
 pub trait Float:
     core::ops::Neg<Output = Self>
     + core::ops::Div<Output = Self>
+    + core::ops::DivAssign
     + core::ops::Mul<Output = Self>
+    + core::ops::MulAssign
     + core::ops::Add<Output = Self>
     + core::ops::AddAssign
     + core::ops::Sub<Output = Self>
@@ -26,11 +28,33 @@ pub trait Float:
     /// method to produce unity vector for the floating type
     fn one() -> Self;
 
+    /// method to produce two
+    fn two() -> Self;
+
     /// method to round off the value
     fn round(self) -> Self;
 
     /// calculates the absolute of the value
     fn abs(self) -> Self;
+
+    /// calculates the arctan
+    fn atan2(self, other: Self) -> Self;
+
+    // returns the min of the two numbers
+    fn min(self, other: Self) -> Self {
+        match self > other {
+            true => other,
+            false => self,
+        }
+    }
+
+    // returns the max of the two numbers
+    fn max(self, other: Self) -> Self {
+        match self < other {
+            true => other,
+            false => self,
+        }
+    }
 }
 
 impl Float for f32 {
@@ -55,6 +79,11 @@ impl Float for f32 {
     }
 
     #[inline(always)]
+    fn two() -> Self {
+        2.
+    }
+
+    #[inline(always)]
     fn round(self) -> Self {
         self.round()
     }
@@ -62,6 +91,11 @@ impl Float for f32 {
     #[inline(always)]
     fn abs(self) -> Self {
         self.abs()
+    }
+
+    #[inline(always)]
+    fn atan2(self, other: Self) -> Self {
+        self.atan2(other)    
     }
 }
 
@@ -87,6 +121,11 @@ impl Float for f64 {
     }
 
     #[inline(always)]
+    fn two() -> Self {
+        2.
+    }
+
+    #[inline(always)]
     fn round(self) -> Self {
         self.round()
     }
@@ -94,6 +133,11 @@ impl Float for f64 {
     #[inline(always)]
     fn abs(self) -> Self {
         self.abs()
+    }
+
+    #[inline(always)]
+    fn atan2(self, other: Self) -> Self {
+        self.atan2(other)    
     }
 }
 
@@ -125,6 +169,12 @@ impl<T: Float> Complex<T> {
         self.1 = -self.1;
         self
     }
+
+    /// ### Argument
+    /// Returns the argument of the complex number
+    pub fn arg(&self) -> T {
+        self.1.atan2(self.0)
+    }
     
     /// ### Magnitude
     /// Calculates the magnitude of the complex number $a + ib$ given by:$$a^2 + b^2$$
@@ -142,6 +192,12 @@ impl<T: Float> Complex<T> {
 
     fn round(self) -> Self {
         Self(self.0.round(), self.1.round())
+    }
+
+    /// normalizes the Complex number
+    #[inline(always)]
+    pub fn normalize(self) -> Self {
+        self / self.magnitude()
     }
 }
 
@@ -163,8 +219,24 @@ impl<T: Float> core::ops::Div for Complex<T> {
     }
 }
 
+impl<T: Float> core::ops::Div<T> for Complex<T> {
+    type Output = Self;
+
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    ///
+    /// assert_eq!(a / 2., Complex::from((0.5, 1.)))
+    /// ```
+    fn div(mut self, rhs: T) -> Self::Output {
+        self /= rhs;
+        self
+    }
+}
+
 /// ## Divide assign
-impl<T: Float> std::ops::DivAssign for Complex<T> {
+impl<T: Float> core::ops::DivAssign for Complex<T> {
     /// ```rust
     /// use vector::Complex;
     ///
@@ -180,7 +252,23 @@ impl<T: Float> std::ops::DivAssign for Complex<T> {
     }
 }
 
-impl<T: Float> std::ops::Mul for Complex<T> {
+/// ## Divide assign
+impl<T: Float> core::ops::DivAssign<T> for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut a = Complex::from((1., 2.));
+    ///  
+    /// a /= 2.;
+    /// assert_eq!(a, Complex::from((0.5, 1.)))
+    /// ```
+    fn div_assign(&mut self, rhs: T) {
+        self.0 /= rhs;
+        self.1 /= rhs;
+    }
+}
+
+impl<T: Float> core::ops::Mul for Complex<T> {
     type Output = Self;
     
     /// ```rust
@@ -197,7 +285,23 @@ impl<T: Float> std::ops::Mul for Complex<T> {
     }
 }
 
-impl<T: Float> std::ops::MulAssign for Complex<T> {
+impl<T: Float> core::ops::Mul<T> for Complex<T> {
+    type Output = Self;
+    
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    /// 
+    /// assert_eq!(a * 2., Complex::from((2., 4.)))
+    /// ```
+    fn mul(mut self, other: T) -> Self::Output {
+       self *= other;
+       self
+    }
+}
+
+impl<T: Float> core::ops::MulAssign for Complex<T> {
     /// ```rust
     /// use vector::Complex;
     ///
@@ -213,7 +317,23 @@ impl<T: Float> std::ops::MulAssign for Complex<T> {
     }
 }
 
-impl<T: Float> std::ops::Add for Complex<T> {
+impl<T: Float> core::ops::MulAssign<T> for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut a = Complex::from((1., 2.));
+    /// 
+    /// a *= 2.;
+    ///
+    /// assert_eq!(a, Complex::from((2., 4.)))
+    /// ```
+    fn mul_assign(&mut self, rhs: T) {
+        self.0 *= rhs;
+        self.1 *= rhs;
+    }
+}
+
+impl<T: Float> core::ops::Add for Complex<T> {
     type Output = Self;
     
     /// ```rust
@@ -230,7 +350,7 @@ impl<T: Float> std::ops::Add for Complex<T> {
     }  
 }
 
-impl<T: Float> std::ops::AddAssign for Complex<T> {
+impl<T: Float> core::ops::AddAssign for Complex<T> {
     /// ```rust
     /// use vector::Complex;
     ///
@@ -247,13 +367,13 @@ impl<T: Float> std::ops::AddAssign for Complex<T> {
     }
 }
 
-impl<T: Float> std::iter::Sum for Complex<T> {
+impl<T: Float> core::iter::Sum for Complex<T> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.reduce(|a, b| a + b).unwrap()
     }
 }
 
-impl<T: Float> std::ops::Sub for Complex<T> {
+impl<T: Float> core::ops::Sub for Complex<T> {
     type Output = Self;
     
     /// ```rust
@@ -270,7 +390,7 @@ impl<T: Float> std::ops::Sub for Complex<T> {
     }  
 }
 
-impl<T: Float> std::ops::SubAssign for Complex<T> {
+impl<T: Float> core::ops::SubAssign for Complex<T> {
     /// ```rust
     /// use vector::Complex;
     ///
@@ -288,7 +408,7 @@ impl<T: Float> std::ops::SubAssign for Complex<T> {
 
 /// ### Negate
 /// Negates the real and imaginary part of the complex number
-impl<T: Float> std::ops::Neg for Complex<T> {
+impl<T: Float> core::ops::Neg for Complex<T> {
     type Output = Self;
 
     /// #### Example
@@ -376,10 +496,10 @@ pub mod matrix {
     impl std::error::Error for MatrixError {}
 
     /// Defines a matrix
-    #[derive(Debug, PartialEq)]
-    pub struct Matrix<const M: usize, const N: usize, T: Float = f32>([[Complex<T>; N]; M]);
+    #[derive(Debug, PartialEq, Clone)]
+    pub struct Matrix<const R: usize, const C: usize, T: Float = f32>([[Complex<T>; C]; R]);
 
-    impl<T: Float, const M: usize, const N: usize> Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> Matrix<R, C, T> {
         /// Creates a new matrix with zero entries
         /// ### Example
         /// ```rust
@@ -389,38 +509,60 @@ pub mod matrix {
         /// assert_eq!(Matrix::from([[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]]), matrix);
         /// ```
         pub fn new_zero() -> Self {
-            Self([[T::zero().into(); N]; M])
+            Self([[T::zero().into(); C]; R])
         }
 
-        /// Returns a new transposed matrix
+        /// Returns a new transposed matrix.
         ///
         /// ### Example
         /// ```rust
         /// use vector::matrix::Matrix;
         ///
-        /// let a = Matrix::from([[4., 4., -4.], [4., 8., 8.], [0., 12., 16.]]);
-        /// let a_t = Matrix::from([[4., 4., 0.], [4., 8., 12.], [-4., 8., 16.]]);
+        /// let a = Matrix::from([[(4., 0.55), (4., -20.1901), (-4., 3.696969)], [(4., -1.4000006), (8., 15.919191), (8., 22.2)], [(0., 40.00001), (12., -92.99999), (16., 8.867193)]]);
+        /// let a_c_t = Matrix::from([[(4., 0.55), (4., -1.4000006), (0., 40.00001)], [(4., -20.1901), (8., 15.919191), (12., -92.99999)], [(-4., 3.696969), (8., 22.2), (16., 8.867193)]]);
         ///
-        /// assert_eq!(a.transpose(), a_t);
+        /// assert_eq!(a.transpose(), a_c_t);
         /// ```
-        pub fn transpose(&self) -> Matrix<N, M, T> {
-            (0..M).flat_map(|i| (0..N).map(move |j| (i, j))).fold(Matrix::new_zero(), |mut acc, (i, j)| {
+        pub fn transpose(&self) -> Matrix<C, R, T> {
+            (0..R).flat_map(|i| (0..C).map(move |j| (i, j))).fold(Matrix::new_zero(), |mut acc, (i, j)| {
                 acc.0[j][i] = self.0[i][j];
                 acc
             })
         }
 
+        /// Returns a new conjugate transposed matrix.
+        /// Also known as **Hermitian transpose**.
+        ///
+        /// ### Example
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let a = Matrix::from([[(4., 0.55), (4., -20.1901), (-4., 3.696969)], [(4., -1.4000006), (8., 15.919191), (8., 22.2)], [(0., 40.00001), (12., -92.99999), (16., 8.867193)]]);
+        /// let a_c_t = Matrix::from([[(4., -0.55), (4., 1.4000006), (0., -40.00001)], [(4., 20.1901), (8., -15.919191), (12., 92.99999)], [(-4., -3.696969), (8., -22.2), (16., -8.867193)]]);
+        ///
+        /// assert_eq!(a.conjugate_transpose(), a_c_t);
+        /// ```
+        pub fn conjugate_transpose(&self) -> Matrix<C, R, T> {
+            (0..R).flat_map(|i| (0..C).map(move |j| (i, j))).fold(Matrix::new_zero(), |mut acc, (i, j)| {
+                acc.0[j][i] = self.0[i][j].conjugate();
+                acc
+            })
+        }
+
+        /// ## Inner product
         /// Calculates the inner product of two matrix.
-        /// `x.inner_product(y)` is denoted as $<x, y>$.
-        /// For matrices, the inner product is: *<x, y> = trace(x^T \* y)*
+        /// $$<A, B> = \mbox{trace}(A^HB)$$
+        /// where, $A^H$ is the *conjugate transpose* or the *Hermitian transpose*.
         pub fn inner_product(&self, mut other: Self) -> Complex<T> {
             other.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c = c.conjugate()));
-            let mat = self.transpose() * other;
+            let mat = self.conjugate_transpose() * other;
             mat.trace()
         }
 
         /// ## Rank
-        /// Calculates the rank of the given matrix. This implies the number of independent columns/rows.
+        /// Calculates the **RANK** of the given matrix. It the number of independent columns/rows.
+        /// ### Complexity
+        /// $O(R \times C \times \mbox{rank})$
         ///
         /// ### Example
         /// ```rust
@@ -431,28 +573,28 @@ pub mod matrix {
         /// assert_eq!(a.rank(), 2);
         /// ```
         pub fn rank(&self) -> usize {
-            let mut matrix = self.0;
-            let mut rank = N;
+            let (mut matrix, mut rank) = (self.0, C);
 
             let mut i = 0;
             let zero = T::zero().into();
             while i < rank {
                 if matrix[i][i] != zero {
-                    for r in (0..M).filter(|&r| r != i) {
+                    (0..R).filter(|&r| r != i).for_each(|r| {
                         let mult = matrix[r][i] / matrix[i][i];
                         (0..rank).for_each(|c| matrix[r][c] -= mult * matrix[i][c]);
-                    }
+                    });
+
                     i += 1;
                 }
                 else {
                     // find non-zero row
-                    match (i + 1..N).find(|&r| matrix[r][i] != zero) {
+                    match (i + 1..C).find(|&r| matrix[r][i] != zero) {
                         Some(r) => (0..rank).for_each(|c| (matrix[r][c], matrix[i][c]) = (matrix[i][c], matrix[r][c])),
                         None => {
                             // reduce rank
                             rank -= 1;
-                            // copy the last column here
-                            (0..M).for_each(|r| matrix[r][i] = matrix[r][rank]);
+                            // copy the last column (rank) here
+                            (0..R).for_each(|r| matrix[r][i] = matrix[r][rank]);
                         },
                     }
                 }
@@ -466,9 +608,64 @@ pub mod matrix {
             self.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c = c.round()));
             self
         }
+
+        /// ## QR Decomposition
+        /// Decomposes the given matrix into two matrices using QR decomposition.
+        /// Let there be a matrix $A_{R \times C}$.
+        /// $$A_{R \times C} = Q_{R \times C} R_{C \times C}$$
+        ///
+        /// ### Uses
+        /// - Solving least squares problem
+        /// - Eigen value computation
+        ///
+        /// ### Example
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let a = Matrix::from([[12., -51., 4.], [6., 167., -68.], [-4., 24., -41.]]);
+        /// let (q, r) = a.qr();
+        ///
+        /// assert_eq!(q, Matrix::from([[-0.857142857142857, 0.394285714285714, -0.3314285714285714], [-0.42857142857142855, -0.9028571428571422, 0.03428571428571427], [0.2857142857142857, -0.17142857142857137, -0.942857142857143]]));
+        /// assert_eq!(r, Matrix::from([[-13.999999999999998, -21.000000000000004, 14.000000000000002], [-0.0000000000000007783517420333592, -174.9999999999999, 69.99999999999996], [0.0000000000000005335902659890752, -0.000000000000007105427357601002, 35.]]));
+        /// ```
+        pub fn qr(&self) -> (Matrix<R, R, T>, Matrix<R, C, T>) {
+            let mut r = self.to_owned();
+            let mut q = Matrix::<R, R, T>::new_identity();
+
+            let min = R.min(C);
+            for i in 0..min {
+                let norm_x_squared = (i..R).map(|k| r.0[k][i].real().powi(2) + r.0[k][i].imaginary().powi(2)).sum::<T>();
+                let alpha = r.0[i][i].normalize() * norm_x_squared.sqrt();
+                let u_norm = (norm_x_squared + alpha.real().powi(2) + alpha.imaginary().powi(2) + T::two() * r.0[i][i].real() * alpha.real() + T::two() * r.0[i][i].imaginary() * alpha.imaginary()).sqrt();
+
+                let u = |k: usize| { // k ranges from i..R
+                    let mut u_k = r.0[k][i];
+                    if k == i {
+                        u_k += alpha;
+                    }
+                    u_k / u_norm
+                };
+
+                // create q
+                let mut q_loc = Matrix::<R, R, T>::new_identity();
+                (i..R).flat_map(|row| (i..C).map(move |col| (row, col))).for_each(|(row, col)| q_loc.0[row][col] = match row == col {
+                    true => {
+                        let u = u(row); 
+                        (T::one() - T::two() * (u.real().powi(2) + u.imaginary().powi(2))).into()
+                    },
+                    false => -u(row) * u(col).conjugate() * T::two(),
+                });
+
+                r = &q_loc * r;
+                q *= q_loc.conjugate_transpose();
+            }
+            
+            println!("q: {q}\nr: {r}");
+            (q, r)
+        }
     }
 
-    impl<T: Float, const N: usize> Matrix<N, N, T> {
+    impl<T: Float, const C: usize> Matrix<C, C, T> {
         /// Creates a new **identity matrix**.
         /// ```rust
         /// use vector::matrix::Matrix;
@@ -487,7 +684,7 @@ pub mod matrix {
 
         /// Calculates the sum of the diagonal elements of the matrix
         fn trace(&self) -> Complex<T> {
-            (0..N).map(|i| self.0[i][i]).sum()
+            (0..C).map(|i| self.0[i][i]).sum()
         }
 
         /// Calculates the determinant of the given square matrix
@@ -497,7 +694,7 @@ pub mod matrix {
         /// - The determinant is then the product of all diagonal elements.
         ///
         /// ### Complexity
-        /// $O(n^3)$
+        /// $O(C^3)$
         ///
         /// ### Example
         /// ```rust
@@ -511,9 +708,9 @@ pub mod matrix {
             let zero = Complex::from(T::zero());
             let [mut det, mut total] = [Complex::from(T::one()); 2];
 
-            for diag_row in 0..N {
+            for diag_row in 0..C {
                 // swap row with non-zero element
-                let Some(non_zero_row) = (diag_row..N).find(|&i| matrix[i][diag_row] != zero) else { continue; };
+                let Some(non_zero_row) = (diag_row..C).find(|&i| matrix[i][diag_row] != zero) else { continue; };
                 if non_zero_row != diag_row {
                     // swap rows
                     (matrix[non_zero_row], matrix[diag_row]) = (matrix[diag_row], matrix[non_zero_row]);
@@ -525,7 +722,7 @@ pub mod matrix {
                 }
 
                 // transform every row below diag_row
-                let temp: [Complex<T>; N] = std::array::from_fn(|j| matrix[diag_row][j]);
+                let temp: [Complex<T>; C] = std::array::from_fn(|j| matrix[diag_row][j]);
                 for row in matrix.iter_mut().skip(diag_row + 1) {
                     let num2 = row[diag_row];
                     row.iter_mut().zip(temp).for_each(|(k, ele)| *k = (temp[diag_row] * *k) - (num2 * ele));
@@ -534,7 +731,7 @@ pub mod matrix {
             }
 
             // multiply diagonal elements
-            (0..N).for_each(|i| det *= matrix[i][i]);
+            (0..C).for_each(|i| det *= matrix[i][i]);
             det / total
         }
 
@@ -543,7 +740,7 @@ pub mod matrix {
         /// Gaussian Jordan Elemination Method
         ///
         /// ### Complexity
-        /// $O(n^3)$
+        /// $O(C^3)$
         ///
         /// ### Note
         /// Since we are not using rationals, **floating point inacuracy** might be encountered.
@@ -577,8 +774,8 @@ pub mod matrix {
             let mut matrix = self.0;
             let mut inverse = Self::new_identity();
 
-            for i in 0..N {
-                let max_row = match (i..N).max_by(|&a, &b| {
+            for i in 0..C {
+                let max_row = match (i..C).max_by(|&a, &b| {
                     let magnitude = |z: Complex<T>| z.real().abs() + z.imaginary().abs();
                     magnitude(matrix[a][i]).partial_cmp(&magnitude(matrix[b][i])).unwrap_or(core::cmp::Ordering::Equal)
                 }) {
@@ -593,14 +790,14 @@ pub mod matrix {
                 }
 
                 let pivot = matrix[i][i];
-                (0..N).for_each(|c| {
+                (0..C).for_each(|c| {
                     matrix[i][c] /= pivot;
                     inverse.0[i][c] /= pivot;
                 });
 
-                (0..N).filter(|&r| r != i).for_each(|r| {
+                (0..C).filter(|&r| r != i).for_each(|r| {
                     let factor = matrix[r][i];
-                    (0..N).for_each(|k| {
+                    (0..C).for_each(|k| {
                         matrix[r][k] -= factor * matrix[i][k];
                         inverse.0[r][k] -= factor * inverse.0[i][k];
                     });
@@ -612,21 +809,21 @@ pub mod matrix {
     }
 
     /// Create a new Matrix by taking ownership of the 2 dimensional array
-    impl<T: Float, C: Into<Complex<T>>, const M: usize, const N: usize> From<[[C; N]; M]> for Matrix<M, N, T> {
-        fn from(value: [[C; N]; M]) -> Self {
+    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> From<[[Z; C]; R]> for Matrix<R, C, T> {
+        fn from(value: [[Z; C]; R]) -> Self {
             Self(value.map(|r| r.map(|c| c.into())))
         }
     }
 
     /// Create a new Matrix from a 2 dimensional slice
-    impl<T: Float, C: Into<Complex<T>> + Clone, const M: usize, const N: usize> From<&[&[C; N]; M]> for Matrix<M, N, T> {
-        fn from(value: &[&[C; N]; M]) -> Self {
+    impl<T: Float, Z: Into<Complex<T>> + Clone, const R: usize, const C: usize> From<&[&[Z; C]; R]> for Matrix<R, C, T> {
+        fn from(value: &[&[Z; C]; R]) -> Self {
             Self(core::array::from_fn(|r| core::array::from_fn(|c| value[r][c].to_owned().into())))
         }
     }
 
     /// ## Matrix display
-    impl<T: Float, const M: usize, const N: usize> core::fmt::Display for Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> core::fmt::Display for Matrix<R, C, T> {
         /// ### Example
         ///
         /// Consider the matrix:$$\begin{bmatrix} 10 & 0 & 20 \\\ 0 & 30 & 0 \\\ 200 & 0 & 100 \end{bmatrix}$$
@@ -637,9 +834,9 @@ pub mod matrix {
         /// assert_eq!("│\t10\t0\t20\t│\n│\t0\t30\t0\t│\n│\t200\t0\t100\t│\n", matrix.to_string());
         /// ```
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            for i in 0..M {
+            for i in 0..R {
                 write!(f, "│\t")?;
-                for j in 0..N {
+                for j in 0..C {
                     write!(f, "{}\t", self.0[i][j])?;
                 }
                 writeln!(f, "│")?;
@@ -651,25 +848,25 @@ pub mod matrix {
 
     /// ## Dividing matrx by Complex
     /// This divides each entry by the given RHS value.
-    impl<T: Float, C: Into<Complex<T>>, const M: usize, const N: usize> core::ops::Div<C> for Matrix<M, N, T> {
+    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::Div<Z> for Matrix<R, C, T> {
         type Output = Self;
 
-        fn div(mut self, rhs: C) -> Self::Output {
+        fn div(mut self, rhs: Z) -> Self::Output {
             self /= rhs;
             self
         }
     }
 
-    impl<T: Float, C: Into<Complex<T>>, const M: usize, const N: usize> core::ops::DivAssign<C> for Matrix<M, N, T> {
-        fn div_assign(&mut self, rhs: C) {
+    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::DivAssign<Z> for Matrix<R, C, T> {
+        fn div_assign(&mut self, rhs: Z) {
             let val = rhs.into();
             self.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c /= val));
         }
     }
 
     /// ## Matrix multiplication
-    impl<T: Float, const M: usize, const N: usize, const O: usize> core::ops::Mul<Matrix<N, O, T>> for Matrix<M, N, T> {
-        type Output = Matrix<M, O, T>;
+    impl<T: Float, const R: usize, const C: usize, const O: usize> core::ops::Mul<Matrix<C, O, T>> for Matrix<R, C, T> {
+        type Output = Matrix<R, O, T>;
 
         /// ### Example
         ///
@@ -681,14 +878,14 @@ pub mod matrix {
         ///
         /// assert_eq!(a * b, Matrix::from([[56., 36.], [34., 76.], [100., 166.], [146., 121.]]));
         /// ```
-        fn mul(self, rhs: Matrix<N, O, T>) -> Self::Output {
+        fn mul(self, rhs: Matrix<C, O, T>) -> Self::Output {
             self * &rhs
         }
     }
 
     /// ## Matrix multiplication
-    impl<T: Float, const M: usize, const N: usize, const O: usize> core::ops::Mul<&Matrix<N, O, T>> for Matrix<M, N, T> {
-        type Output = Matrix<M, O, T>;
+    impl<T: Float, const R: usize, const C: usize, const O: usize> core::ops::Mul<&Matrix<C, O, T>> for Matrix<R, C, T> {
+        type Output = Matrix<R, O, T>;
 
         /// ### Example
         ///
@@ -700,10 +897,60 @@ pub mod matrix {
         ///
         /// assert_eq!(a * &b, Matrix::from([[56., 36.], [34., 76.], [100., 166.], [146., 121.]]));
         /// ```
-        fn mul(self, rhs: &Matrix<N, O, T>) -> Self::Output {
+        fn mul(self, rhs: &Matrix<C, O, T>) -> Self::Output {
             let matrix = std::array::from_fn(|i| 
                 std::array::from_fn(|j| 
-                    (0..N).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
+                    (0..C).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
+                )
+            );
+
+            Matrix(matrix)
+        }
+    }
+
+    /// ## Matrix multiplication
+    impl<T: Float, const R: usize, const C: usize, const O: usize> core::ops::Mul<Matrix<C, O, T>> for &Matrix<R, C, T> {
+        type Output = Matrix<R, O, T>;
+
+        /// ### Example
+        ///
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let a = Matrix::from([[4., 1., -4., 5.], [-2., 0., 6., 3.], [2., 7., 8., 9.], [10., -1., -3., 11.]]);
+        /// let b = Matrix::from([[4., 1.], [-2., 0.], [2., 7.], [10., 12.]]);
+        ///
+        /// assert_eq!(&a * b, Matrix::from([[56., 36.], [34., 76.], [100., 166.], [146., 121.]]));
+        /// ```
+        fn mul(self, rhs: Matrix<C, O, T>) -> Self::Output {
+            let matrix = std::array::from_fn(|i| 
+                std::array::from_fn(|j| 
+                    (0..C).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
+                )
+            );
+
+            Matrix(matrix)
+        }
+    }
+
+    /// ## Matrix multiplication
+    impl<T: Float, const R: usize, const C: usize, const O: usize> core::ops::Mul<&Matrix<C, O, T>> for &Matrix<R, C, T> {
+        type Output = Matrix<R, O, T>;
+
+        /// ### Example
+        ///
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let a = Matrix::from([[4., 1., -4., 5.], [-2., 0., 6., 3.], [2., 7., 8., 9.], [10., -1., -3., 11.]]);
+        /// let b = Matrix::from([[4., 1.], [-2., 0.], [2., 7.], [10., 12.]]);
+        ///
+        /// assert_eq!(&a * &b, Matrix::from([[56., 36.], [34., 76.], [100., 166.], [146., 121.]]));
+        /// ```
+        fn mul(self, rhs: &Matrix<C, O, T>) -> Self::Output {
+            let matrix = std::array::from_fn(|i| 
+                std::array::from_fn(|j| 
+                    (0..C).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
                 )
             );
 
@@ -713,7 +960,7 @@ pub mod matrix {
 
     /// ## Matrix multiplication and assignment
     /// **Only applicable for square matrices**
-    impl<T: Float, const N: usize> core::ops::MulAssign for Matrix<N, N, T> {
+    impl<T: Float, const C: usize> core::ops::MulAssign for Matrix<C, C, T> {
         /// ### Example
         /// 
         /// ```rust
@@ -727,7 +974,7 @@ pub mod matrix {
         fn mul_assign(&mut self, rhs: Self) {
             let matrix = std::array::from_fn(|i| 
                 std::array::from_fn(|j| 
-                    (0..N).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
+                    (0..C).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
                 )
             );
 
@@ -736,7 +983,7 @@ pub mod matrix {
     }
 
     /// ## Matrix multiplication by a scalar
-    impl<T: Float, C: Into<Complex<T>>, const M: usize, const N: usize> core::ops::Mul<C> for Matrix<M, N, T> {
+    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::Mul<Z> for Matrix<R, C, T> {
         type Output = Self;
 
         /// ### Example
@@ -747,21 +994,21 @@ pub mod matrix {
         /// let a = Matrix::from([[1., 8., 3.], [9., 4., 5.], [6., 2., 7.]]);
         /// assert_eq!(a * 2., Matrix::from([[2., 16., 6.], [18., 8., 10.], [12., 4., 14.]]));
         /// ```
-        fn mul(mut self, rhs: C) -> Self::Output {
+        fn mul(mut self, rhs: Z) -> Self::Output {
             self *= rhs;
             self
         }
     }
 
-    impl<T: Float, C: Into<Complex<T>>, const M: usize, const N: usize> core::ops::MulAssign<C> for Matrix<M, N, T> {
-        fn mul_assign(&mut self, rhs: C) {
+    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::MulAssign<Z> for Matrix<R, C, T> {
+        fn mul_assign(&mut self, rhs: Z) {
             let val = rhs.into();
             self.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c *= val));
         }
     }
 
     /// ## Matrix addition
-    impl<T: Float, const M: usize, const N: usize> core::ops::Add for Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> core::ops::Add for Matrix<R, C, T> {
         type Output = Self;
 
         /// ### Example
@@ -781,7 +1028,7 @@ pub mod matrix {
     }
 
     /// ## Matrix addition assign
-    impl<T: Float, const M: usize, const N: usize> core::ops::AddAssign for Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> core::ops::AddAssign for Matrix<R, C, T> {
         /// ### Example
         ///
         /// ```rust
@@ -800,7 +1047,7 @@ pub mod matrix {
     }
 
     /// ## Matrix subtraction
-    impl<T: Float, const M: usize, const N: usize> core::ops::Sub for Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> core::ops::Sub for Matrix<R, C, T> {
         type Output = Self;
 
         /// ### Example
@@ -820,7 +1067,7 @@ pub mod matrix {
     }
 
     /// ## Matrix subtraction assign
-    impl<T: Float, const M: usize, const N: usize> core::ops::SubAssign for Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> core::ops::SubAssign for Matrix<R, C, T> {
         /// ### Example
         ///
         /// ```rust
@@ -838,7 +1085,7 @@ pub mod matrix {
     }
 
     /// ## Matrix negation
-    impl<T: Float, const M: usize, const N: usize> core::ops::Neg for Matrix<M, N, T> {
+    impl<T: Float, const R: usize, const C: usize> core::ops::Neg for Matrix<R, C, T> {
         type Output = Self;
 
         /// ### Example
