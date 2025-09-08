@@ -55,6 +55,8 @@ pub trait Float:
             false => self,
         }
     }
+
+    fn tolerence() -> Self;
 }
 
 impl Float for f32 {
@@ -97,6 +99,12 @@ impl Float for f32 {
     fn atan2(self, other: Self) -> Self {
         self.atan2(other)    
     }
+
+    #[inline(always)]
+    fn tolerence() -> Self {
+        const TOLERENCE_F32: f32 = 1e-6;
+        TOLERENCE_F32
+    }
 }
 
 impl Float for f64 {
@@ -138,6 +146,12 @@ impl Float for f64 {
     #[inline(always)]
     fn atan2(self, other: Self) -> Self {
         self.atan2(other)    
+    }
+
+    #[inline(always)]
+    fn tolerence() -> Self {
+        const TOLERENCE_F64: f64 = 1e-12;
+        TOLERENCE_F64
     }
 }
 
@@ -186,8 +200,14 @@ impl<T: Float> Complex<T> {
     /// let complex = Complex::from((3., 4.));
     /// assert_eq!(complex.magnitude(), 5.)
     /// ```
+    #[inline(always)]
     pub fn magnitude(&self) -> T {
-        (self.0.powi(2) + self.1.powi(2)).sqrt()
+        self.norm_squared().sqrt()
+    }
+
+    #[inline(always)]
+    pub fn norm_squared(&self) -> T {
+        self.0.powi(2) + self.1.powi(2)
     }
 
     fn round(self) -> Self {
@@ -483,12 +503,14 @@ pub mod matrix {
     #[derive(Debug)]
     pub enum MatrixError {
         Singular,
+        Dependent,
     }
 
     impl std::fmt::Display for MatrixError {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self {
                 Self::Singular => write!(f, "Matrix is singular"),
+                Self::Dependent => write!(f, "Matrix has dependent columns"),
             }
         }
     }
@@ -509,6 +531,7 @@ pub mod matrix {
         /// assert_eq!(Matrix::from([[0., 0., 0.], [0., 0., 0.], [0., 0., 0.]]), matrix);
         /// ```
         pub fn new_zero() -> Self {
+            assert_ne!((R, C), (0, 0), "Cannot create a matrix with no dimensions");
             Self([[T::zero().into(); C]; R])
         }
 
@@ -613,6 +636,9 @@ pub mod matrix {
         /// Decomposes the given matrix into two matrices using QR decomposition.
         /// Let there be a matrix $A_{R \times C}$.
         /// $$A_{R \times C} = Q_{R \times C} R_{C \times C}$$
+        /// Error is returned if any of the columns are dependent.
+        ///
+        /// **NOTE:** The matrix Q represents the Gram Schmidt matrix.
         ///
         /// ### Uses
         /// - Solving least squares problem
@@ -623,27 +649,47 @@ pub mod matrix {
         /// use vector::matrix::Matrix;
         ///
         /// let a = Matrix::from([[12., -51., 4.], [6., 167., -68.], [-4., 24., -41.]]);
-        /// let (q, r) = a.qr();
+        /// let (q, r) = a.qr().unwrap();
         ///
         /// assert_eq!(q, Matrix::from([[-0.857142857142857, 0.394285714285714, -0.3314285714285714], [-0.42857142857142855, -0.9028571428571422, 0.03428571428571427], [0.2857142857142857, -0.17142857142857137, -0.942857142857143]]));
         /// assert_eq!(r, Matrix::from([[-13.999999999999998, -21.000000000000004, 14.000000000000002], [-0.0000000000000007783517420333592, -174.9999999999999, 69.99999999999996], [0.0000000000000005335902659890752, -0.000000000000007105427357601002, 35.]]));
         /// ```
-        pub fn qr(&self) -> (Matrix<R, R, T>, Matrix<R, C, T>) {
+        ///
+        /// ```rust, should_panic
+        /// use vector::matrix::Matrix;
+        ///
+        /// // Dependent columns
+        /// let a = Matrix::from([[3., 3.], [1., 1.]]);
+        /// a.qr().unwrap();
+        /// ```
+        pub fn qr(&self) -> Result<(Matrix<R, R, T>, Matrix<R, C, T>), MatrixError> {
             let mut r = self.to_owned();
             let mut q = Matrix::<R, R, T>::new_identity();
 
-            let min = R.min(C);
+            let min = C.min(R);
             for i in 0..min {
-                let norm_x_squared = (i..R).map(|k| r.0[k][i].real().powi(2) + r.0[k][i].imaginary().powi(2)).sum::<T>();
-                let alpha = r.0[i][i].normalize() * norm_x_squared.sqrt();
-                let u_norm = (norm_x_squared + alpha.real().powi(2) + alpha.imaginary().powi(2) + T::two() * r.0[i][i].real() * alpha.real() + T::two() * r.0[i][i].imaginary() * alpha.imaginary()).sqrt();
+                let norm_x_squared = (i..R).map(|k| r.0[k][i].norm_squared()).sum::<T>();
+                let norm = norm_x_squared.sqrt();
+                if norm < T::tolerence() {
+                    return Err(MatrixError::Dependent);
+                }
 
-                let u = |k: usize| { // k ranges from i..R
-                    let mut u_k = r.0[k][i];
-                    if k == i {
-                        u_k += alpha;
-                    }
-                    u_k / u_norm
+                let alpha = r.0[i][i].normalize() * norm;
+                let u_norm = (norm_x_squared + alpha.norm_squared() + T::two() * r.0[i][i].real() * alpha.real() + T::two() * r.0[i][i].imaginary() * alpha.imaginary()).sqrt();
+
+                let mut u_cache: [Option<Complex<T>>; R] = core::array::from_fn(|_| None);
+                let mut u = |k: usize| match u_cache[k] { // k ranges from i..R
+                    Some(res) => res,
+                    None => {
+                        let mut u_k = r.0[k][i];
+                        if k == i {
+                            u_k += alpha;
+                        }
+
+                        let res = u_k / u_norm;
+                        u_cache[k] = Some(res);
+                        res
+                    },
                 };
 
                 // create q
@@ -651,7 +697,7 @@ pub mod matrix {
                 (i..R).flat_map(|row| (i..C).map(move |col| (row, col))).for_each(|(row, col)| q_loc.0[row][col] = match row == col {
                     true => {
                         let u = u(row); 
-                        (T::one() - T::two() * (u.real().powi(2) + u.imaginary().powi(2))).into()
+                        (T::one() - T::two() * u.norm_squared()).into()
                     },
                     false => -u(row) * u(col).conjugate() * T::two(),
                 });
@@ -660,8 +706,12 @@ pub mod matrix {
                 q *= q_loc.conjugate_transpose();
             }
             
-            println!("q: {q}\nr: {r}");
-            (q, r)
+            Ok((q, r))
+        }
+
+        /// ### Singular Value Decomposition
+        pub fn svd(&self) -> (Matrix<R, R, T>, Matrix<R, C, T>, Matrix<C, C, T>) {
+            todo!()
         }
     }
 
@@ -674,6 +724,7 @@ pub mod matrix {
         /// assert_eq!(Matrix::from([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]), matrix);
         /// ```
         pub fn new_identity() -> Self {
+            assert_ne!(C, 0, "Cannot create a matrix with no dimensions");
             Self(std::array::from_fn(|i| 
                     std::array::from_fn(|j| match j == i {
                         true => T::one(),
@@ -811,6 +862,7 @@ pub mod matrix {
     /// Create a new Matrix by taking ownership of the 2 dimensional array
     impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> From<[[Z; C]; R]> for Matrix<R, C, T> {
         fn from(value: [[Z; C]; R]) -> Self {
+            assert_ne!((R, C), (0, 0), "Cannot create a matrix with no dimensions");
             Self(value.map(|r| r.map(|c| c.into())))
         }
     }
@@ -818,6 +870,7 @@ pub mod matrix {
     /// Create a new Matrix from a 2 dimensional slice
     impl<T: Float, Z: Into<Complex<T>> + Clone, const R: usize, const C: usize> From<&[&[Z; C]; R]> for Matrix<R, C, T> {
         fn from(value: &[&[Z; C]; R]) -> Self {
+            assert_ne!((R, C), (0, 0), "Cannot create a matrix with no dimensions");
             Self(core::array::from_fn(|r| core::array::from_fn(|c| value[r][c].to_owned().into())))
         }
     }
@@ -1098,6 +1151,23 @@ pub mod matrix {
         /// ```
         fn neg(self) -> Self::Output {
             Self(self.0.map(|r| r.map(Complex::neg)))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        #[should_panic]
+        fn new_dimensionless_zero_matrix() {
+            Matrix::<0, 0, f32>::new_zero();
+        }
+
+        #[test]
+        #[should_panic]
+        fn new_dimensionless_identity_matrix() {
+            Matrix::<0, 0, f32>::new_identity();
         }
     }
 }
