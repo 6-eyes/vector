@@ -663,10 +663,10 @@ pub mod matrix {
             Self([[T::zero().into(); C]; R])
         }
 
-        /// Getter
-        /// Gets the value present at the index (r, c).
-        pub fn get(&self, r: usize, c: usize) -> &Complex<T> {
-            self.0.get(r).expect("row index out of bounds").get(c).expect("column index out of bounds")
+        /// returns true if the entries of the matrix are zero within tolerence
+        #[inline]
+        pub fn is_zero(&self) -> bool {
+            self.0.iter().flatten().all(Complex::is_zero)
         }
 
         /// Returns a new transposed matrix.
@@ -861,6 +861,12 @@ pub mod matrix {
                 (0..R).for_each(|r| self.0[r][c] /= sum);
             }
         }
+
+        /// ## Normal columns check
+        /// Returns true if the columns of the matrix are normalized
+        pub fn has_normal_columns(&self) -> bool {
+            (0..C).map(|c| (0..R).map(|r| self.0[r][c].norm_squared()).sum::<T>().sqrt()).all(|sum| (sum - T::one()).abs() <= T::tolerence())
+        }
     }
 
     impl<T: Float, const C: usize> Matrix<C, C, T> {
@@ -1005,16 +1011,21 @@ pub mod matrix {
 
             Ok(inverse)
         }
+    }
 
-        /// Method to check if the square matrix is identity or not.
-        /// todo!()
-        pub fn is_identity(&self) -> bool {
-            self.0.iter().enumerate().all(|(r, row)| {
-                row.iter().enumerate().all(|(c, &val)| {
-                    let expected = if r == c { T::one().into() } else { T::zero().into() };
-                    (val - expected).magnitude().abs() <= T::tolerence()
-                })
-            })
+    impl<T: Float, const R: usize, const C: usize> core::ops::Index<usize> for Matrix<R, C, T> {
+        type Output = [Complex<T>; C];
+
+        /// Method to enable matrix indexing
+        fn index(&self, index: usize) -> &Self::Output {
+            &self.0[index]
+        }
+    }
+
+    impl<T: Float, const R: usize, const C: usize> core::ops::IndexMut<usize> for Matrix<R, C, T> {
+        /// Method to enable mutable matrix indexing
+        fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+            &mut self.0[index]
         }
     }
 
@@ -1031,6 +1042,14 @@ pub mod matrix {
         fn from(value: &[&[Z; C]; R]) -> Self {
             assert_ne!((R, C), (0, 0), "Cannot create a matrix with no dimensions");
             Self(core::array::from_fn(|r| core::array::from_fn(|c| value[r][c].to_owned().into())))
+        }
+    }
+
+    /// Create a new Matrix from a 2 dimensional complex
+    impl<T: Float, const R: usize, const C: usize> From<[[&Complex<T>; C]; R]> for Matrix<R, C, T> {
+        fn from(value: [[&Complex<T>; C]; R]) -> Self {
+            assert_ne!((R, C), (0, 0), "Cannot create a matrix with no dimensions");
+            Self(value.map(|row| row.map(|&v| v)))
         }
     }
 
@@ -1170,27 +1189,19 @@ pub mod matrix {
         }
     }
 
-    /// ## Matrix multiplication and assignment
-    /// **Only applicable for square matrices**
-    impl<T: Float, const C: usize> core::ops::MulAssign for Matrix<C, C, T> {
+    impl <T: Float, const R: usize, const C: usize> core::ops::Mul<&Matrix<R, C, T>> for Complex<T> {
+        type Output = Matrix<R, C, T>;
+
         /// ### Example
-        /// 
+        ///
         /// ```rust
-        /// use vector::matrix::Matrix;
+        /// use vector::{matrix::Matrix, Complex};
         ///
         /// let a = Matrix::from([[1., 8., 3.], [9., 4., 5.], [6., 2., 7.]]);
-        /// let b = Matrix::from([[6., 7., 4.], [1., 3., 2.], [5., 9., 8.]]);
-        /// 
-        /// assert_eq!(a * b, Matrix::from([[29., 58., 44.], [83., 120., 84.], [73., 111., 84.]]));
+        /// assert_eq!(Complex::from(2.) * &a, Matrix::from([[2., 16., 6.], [18., 8., 10.], [12., 4., 14.]]));
         /// ```
-        fn mul_assign(&mut self, rhs: Self) {
-            let matrix = std::array::from_fn(|i| 
-                std::array::from_fn(|j| 
-                    (0..C).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()
-                )
-            );
-
-            *self = Self(matrix);
+        fn mul(self, rhs: &Matrix<R, C, T>) -> Self::Output {
+            rhs.clone() * self
         }
     }
 
@@ -1212,13 +1223,6 @@ pub mod matrix {
         }
     }
 
-    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::MulAssign<Z> for Matrix<R, C, T> {
-        fn mul_assign(&mut self, rhs: Z) {
-            let val = rhs.into();
-            self.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c *= val));
-        }
-    }
-
     /// ## Matrix multiplication by a complex at rhs
     impl<T: Float, const R: usize, const C: usize> core::ops::Mul<Matrix<R, C, T>> for Complex<T> {
         type Output = Matrix<R, C, T>;
@@ -1227,6 +1231,32 @@ pub mod matrix {
             rhs *= self;
             rhs
         } 
+    }
+
+    /// ## Matrix multiplication and assignment
+    /// **Only applicable for square matrices**
+    impl<T: Float, const C: usize> core::ops::MulAssign for Matrix<C, C, T> {
+        /// ### Example
+        /// 
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let a = Matrix::from([[1., 8., 3.], [9., 4., 5.], [6., 2., 7.]]);
+        /// let b = Matrix::from([[6., 7., 4.], [1., 3., 2.], [5., 9., 8.]]);
+        /// 
+        /// assert_eq!(a * b, Matrix::from([[29., 58., 44.], [83., 120., 84.], [73., 111., 84.]]));
+        /// ```
+        fn mul_assign(&mut self, rhs: Self) {
+            let matrix = std::array::from_fn(|i| std::array::from_fn(|j| (0..C).map(|k| self.0[i][k] * rhs.0[k][j]).sum::<Complex<T>>()));
+            *self = Self(matrix);
+        }
+    }
+
+    impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::MulAssign<Z> for Matrix<R, C, T> {
+        fn mul_assign(&mut self, rhs: Z) {
+            let val = rhs.into();
+            self.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c *= val));
+        }
     }
 
     /// ## Matrix addition
@@ -1342,107 +1372,340 @@ pub mod matrix {
 }
 
 pub mod transformation {
-    use core::{fmt::Display, ops::Mul};
-    use crate::{matrix::{Matrix, MatrixError}, Complex, Float};
+    use core::fmt::Display;
+    use crate::{matrix::Matrix, Complex, Float};
 
-    #[derive(Debug)]
-    pub struct Rotation<T: Float>(Matrix::<3, 3, T>);
+    type Result<T> = core::result::Result<T, Error>;
 
-    impl<T: Float> Rotation<T> {
-        /// Makes the rotation matrix using the **Rodrigues' formula**.
-        /// ### Rodrigues' formula
-        /// $$\mbox{Rot}(\hat\omega, \theta) = e^{\left[\hat\omega\right] \theta} = I + \sim\theta\left[\hat\omega\right] + (1 - \cos \theta) \left[\hat\omega\right]^2 $$
-        /// #### Example
-        /// ```rust
-        /// use vector::{matrix::Matrix, transformation::Rotation};
-        ///
-        /// let omega = Matrix::from([[0.], [0.866], [0.5]]);
-        /// let theta_degrees = 30.;
-        /// let rot = Rotation::from_axis_and_angle(omega, theta_degrees * std::f32::consts::PI / 180.);
-        ///
-        /// let answer = Matrix::from([[0.8660313, -0.25, 0.433], [0.25, 0.96650636, 0.058011007], [-0.433, 0.058011007, 0.8995249]]);
-        ///
-        /// assert_eq!(rot, answer);
-        /// ```
-        pub fn from_axis_and_angle(omega: Matrix<3, 1, T>, theta: T) -> Self {
-            // 1. calculate skew symmetric matrix
-            let skew_symmetric = Matrix::from([
-                [T::zero().into(), -omega.get(2, 0).to_owned(), omega.get(1, 0).to_owned()],
-                [omega.get(2, 0).to_owned(), T::zero().into(), -omega.get(0, 0).to_owned()],
-                [-omega.get(1, 0).to_owned(), omega.get(0, 0).to_owned(), T::zero().into()],
-            ]);
-
-            let skew_symmetric_squared = &skew_symmetric * &skew_symmetric;
-
-            // 2. Rodrigues' formula
-            Self(Matrix::new_identity() + Complex::from(theta.sin()) * skew_symmetric + (Complex::from(T::one()) - Complex::from(theta.cos())) * skew_symmetric_squared)
-        }
-
-        /// Inverse of rotation matrices is same as transpose.
-        /// $$R^{-1} = R^T$$
-        pub fn inverse(&self) -> Self {
-            Self(self.0.transpose())
-        }
-    }
-
-    impl<T: Float> PartialEq<Matrix<3, 3, T>> for Rotation<T> {
-        fn eq(&self, other: &Matrix<3, 3, T>) -> bool {
-            &self.0 == other
-        }
-    }
-
-    impl<T: Float> TryFrom<Matrix<3, 3, T>> for Rotation<T> {
-        type Error = MatrixError;
-
-        /// Creates Rotation matrix from a 3x3 matrix.
-        /// Normally only 3 entries (out of 9) can be selcted independently in a rotation matrix. These correspond to the angles to be rotated by each axis.
-        ///
-        /// The rotation matrix has 9 elements. Hence 6 constraints need to be applied.
-	    /// 1) The unit norm condition: $\hat{x}_b$, $\hat{y}_b$, $\hat{z}_b$ are all unit vectors. $$\begin{aligned} r_{11}^2 + r_{21}^2 + r_{31}^2 &= 1 \\ r_{12}^2 + r_{22}^2 + r_{32}^2 &= 1 \\ r_{13}^2 + r_{23}^2 + r_{33}^2 &= 1 \end{aligned}$$
-	    /// 2) The orthogonality condition (columns are independent): $$\begin{aligned} \hat{x}_b . \hat{y}_b &= r_{11}r_{12} + r_{21}r_{22} + r_{31}r_{32} &= 0 \\ \hat{y}_b . \hat{z}_b &= r_{12}r_{13} + r_{22}r_{23} + r_{32}r_{32} &= 0 \\ \hat{x}_b . \hat{z}_b &= r_{11}r_{13} + r{21}r_{23} + r_{31}r_{33} &= 0 \end{aligned}$$
-        ///
-        /// Also for the frame to be right handed, an additional condition should be that the determinant should be `+1`.
-        /// If the determinant is `-1`, it would lead to reflections or inversions.
-        fn try_from(mut value: Matrix<3, 3, T>) -> Result<Self, Self::Error> {
-            if value.determinant().magnitude() <= T::tolerence() {
-                return Err(MatrixError::Singular);
-            }
-
-            // columns should be orthogonal
-            for (c1, c2) in [(0, 1), (0, 2), (1, 2)] {
-                if (0..3).map(|i| value.get(i, c1) * value.get(i, c2)).sum::<Complex<T>>().is_zero() {
-                    return Err(MatrixError::Dependent);
-                }
-            }
-
-            // normalize
-            value.normalize_columns();
-
-            // check orientation
-            Ok(Self(value))
-        }
-    }
-
-    impl<T: Float> core::ops::Neg for Rotation<T> {
-        type Output = Self;
-
-        fn neg(self) -> Self::Output {
-            Self(-self.0)    
-        }
+    // Method to make skew symmetric of a 3x1 matrix
+    fn skew_symmetric<T: Float>(matrix: &Matrix<3, 1, T>) -> Matrix<3, 3, T> {
+        let zero = T::zero().into();
+        Matrix::from([
+            [zero, -matrix[2][0], matrix[1][0]],
+            [matrix[2][0], zero, -matrix[0][0]],
+            [-matrix[1][0], matrix[0][0], zero],
+        ])
     }
 
     #[derive(Debug)]
     pub struct Transformation<T: Float> {
-        rotation: Rotation<T>,
+        rotation: Matrix<3, 3, T>,
         translation: Matrix<3, 1, T>,
+    }
+
+    impl<T: Float> Default for Transformation<T> {
+        /// - Gives a transformation matrix which performs no transformation.
+        /// - It can also be thought of to be representing origin.
+        /// - Identuty 4x4 matrix.
+        ///
+        /// ### Example
+        /// ```rust
+        /// use vector::{transformation::Transformation, matrix::Matrix};
+        ///
+        /// let default_transformation = Transformation::default();
+        /// let matrix = Matrix::from([
+        ///     [1., 0., 0., 0.],
+        ///     [0., 1., 0., 0.],
+        ///     [0., 0., 1., 0.],
+        ///     [0., 0., 0., 1.],
+        /// ]);
+        ///
+        /// assert_eq!(default_transformation, matrix);
+        /// ```
+        fn default() -> Self {
+            Self {
+                rotation: Matrix::new_identity(),
+                translation: Matrix::new_zero(),
+            }
+        }
     }
 
     impl<T: Float> Transformation<T> {
         /// Method to find inverse of the rotation matrix
         /// $$T^{-1} = \begin{bmatrix} R & p \\ 0 & 1 \end{bmatrix}^{-1} = \begin{bmatrix} R^T & -R^Tp \\ 0 & 1\end{bmatrix}$$
-        fn inverse(&self) -> Self {
-            let rotation = self.rotation.inverse();
-            let translation = -(rotation.0.clone()) * &self.translation;
+        /// Also,$$R^TR = I$$
+        pub fn inverse(&self) -> Self {
+            let rotation = self.rotation.transpose();
+            let translation = -(rotation.clone()) * &self.translation;
+
+            Self {
+                rotation,
+                translation,
+            }
+        }
+
+        /// ## New transformation matrix from screw representation
+        /// The screw axis has a pitch which signifies the translation performed after rotating a certain angle along the screw axis.
+        /// The pitch is denoted as:$$h = \hat{\omega}^T s / \theta$$
+        /// ### Case 1: The pitch of the screw axis is finite
+        /// $\Vert \omega \Vert = 1$ and $\theta$ corresponds to the angle of rotation along the screw axis.
+        /// ### Case 2: The pitch of the screw axis is infinite
+        /// In this case $\omega = 0$ and $\Vert s \Vert = 1$ and $\theta$ corresponds to the vertical distance travelled along the screw axis.
+        ///
+        /// ### Rodrigues' formula
+        /// $$\mbox{Rot}(\hat\omega, \theta) = e^{\left[\hat\omega\right] \theta} = I + \sim\theta\left[\hat\omega\right] + (1 - \cos \theta) \left[\hat\omega\right]^2 $$
+        pub fn from_screw(axis: Matrix<3, 1, T>, translation: Matrix<3, 1, T>, theta: T) -> Result<Self> {
+            // no movement
+            let mut rotation = Matrix::new_identity();
+            if theta.abs() < T::tolerence() {
+                Ok(Self {
+                    rotation,
+                    translation,
+                })
+            }
+            // infinite pitch
+            else if axis.is_zero() {
+                match translation.has_normal_columns() {
+                    true => Ok(Self {
+                        rotation,
+                        translation: translation * theta,
+                    }),
+                    false => Err(Error::Screw(FromScrewError::RotationAxisNotNormal)),
+                }
+            }
+            // finite pitch
+            else {
+                if !axis.has_normal_columns() {
+                    return Err(Error::Screw(FromScrewError::RotationAxisNotNormal));
+                }
+
+                // the rotation matrix is obtained from rodrigurs formula
+                // 1. calculate skew symmetric matrix
+                let skew_symmetric = skew_symmetric(&axis);
+
+                let skew_symmetric_squared = &skew_symmetric * &skew_symmetric;
+
+                let complex_one_minus_cos = Complex::from(T::one() - theta.cos());
+                let sin = theta.sin();
+
+                // 2. Rodrigues' formula
+                rotation += Complex::from(sin) * skew_symmetric.clone() + complex_one_minus_cos * skew_symmetric_squared.clone();
+
+                // Chasles-Mozzi theorem
+                let translation = (Matrix::new_identity() + complex_one_minus_cos * skew_symmetric + Complex::from(theta - sin) * skew_symmetric_squared) * translation;
+
+                Ok(Self {
+                    rotation,
+                    translation,
+                })
+            }
+        }
+
+        /// Method to validate the rotation matrix
+        /// Normally only 3 entries (out of 9) can be selcted independently in a rotation matrix. These correspond to the angles to be rotated by each axis.
+        ///
+        /// The rotation matrix has 9 elements. Hence 6 constraints need to be applied.
+	    /// 1) The unit norm condition: $\hat{x}_b$, $\hat{y}_b$, $\hat{z}_b$ are all unit vectors. $$\begin{aligned} r_{11}^2 + r_{21}^2 + r_{31}^2 &= 1 \\ r_{12}^2 + r_{22}^2 + r_{32}^2 &= 1 \\ r_{13}^2 + r_{23}^2 + r_{33}^2 &= 1 \end{aligned}$$
+	    /// 2) The orthogonality condition (dot product of columns is zero): $$\begin{aligned} \hat{x}_b . \hat{y}_b &= r_{11}r_{12} + r_{21}r_{22} + r_{31}r_{32} &= 0 \\ \hat{y}_b . \hat{z}_b &= r_{12}r_{13} + r_{22}r_{23} + r_{32}r_{32} &= 0 \\ \hat{x}_b . \hat{z}_b &= r_{11}r_{13} + r{21}r_{23} + r_{31}r_{33} &= 0 \end{aligned}$$
+        ///
+        /// Also for the frame to be right handed, an additional condition should be that the determinant should be `+1`.
+        /// If the determinant is `-1`, it would lead to reflections or inversions.
+        fn validate_rotation(rotation: &mut Matrix<3, 3, T>) -> Result<()> {
+            if rotation.determinant().magnitude() <= T::tolerence() {
+                return Err(Error::Singular);
+            }
+
+            // columns should be orthogonal
+            if [(0, 1), (0, 2), (1, 2)].iter().any(|&(c1, c2)| !(0..3).map(|i| rotation[i][c1] * rotation[i][c2]).sum::<Complex<T>>().is_zero()) {
+                return Err(Error::Dependent);
+            }
+
+            // normalize
+            rotation.normalize_columns();
+
+            // check orientation
+            let determinant = rotation.determinant();
+            println!("rotation:\n{rotation}\ndeterminant: {determinant}");
+            if determinant.is_imaginary() || (determinant.real() - T::one()).abs() > T::tolerence() {
+                return Err(Error::Orientation);
+            }
+
+            Ok(())
+        }
+
+        /// Returns thn 6x6 adjoint matrix for the transformation matrix
+        pub fn adjoint(&self) -> Matrix<6, 6, T> {
+            let one_zero = skew_symmetric(&self.translation) * &self.rotation;
+            let zero = T::zero().into();
+
+            Matrix::from([
+                [self.rotation[0][0], self.rotation[0][1], self.rotation[0][2], zero, zero, zero],
+                [self.rotation[1][0], self.rotation[1][1], self.rotation[1][2], zero, zero, zero],
+                [self.rotation[2][0], self.rotation[2][1], self.rotation[2][2], zero, zero, zero],
+                [one_zero[0][0], one_zero[0][1], one_zero[0][2], self.rotation[0][0], self.rotation[0][1], self.rotation[0][2]],
+                [one_zero[1][0], one_zero[1][1], one_zero[1][2], self.rotation[1][0], self.rotation[1][1], self.rotation[1][2]],
+                [one_zero[2][0], one_zero[2][1], one_zero[2][2], self.rotation[2][0], self.rotation[2][1], self.rotation[2][2]],
+            ])
+        }
+    }
+
+    impl<T: Float> From<Screw<T>> for Transformation<T> {
+        fn from(Screw { angular, linear, theta }: Screw<T>) -> Self {
+            // no movement
+            let mut rotation = Matrix::new_identity();
+            // infinite pitch
+            let translation = if angular.is_zero() {
+                linear * theta
+            }
+            // finite pitch
+            else {
+                // the rotation matrix is obtained from rodrigurs formula while the complete matrix translation matrix is created using Chasles-Mozzi theorem.
+                // 1. calculate skew symmetric matrix
+                let skew_symmetric = skew_symmetric(&angular);
+                let skew_symmetric_squared = &skew_symmetric * &skew_symmetric;
+
+                let complex_one_minus_cos = Complex::from(T::one() - theta.cos());
+                let sin = theta.sin();
+
+                // 2. Rodrigues' formula
+                rotation += Complex::from(sin) * &skew_symmetric + complex_one_minus_cos * &skew_symmetric_squared;
+
+                // 3. Translation matrix
+                (Matrix::new_identity() + complex_one_minus_cos * skew_symmetric + Complex::from(theta - sin) * skew_symmetric_squared) * linear
+            };
+
+            Self {
+                rotation,
+                translation,
+            }
+        }
+    }
+
+    impl<T: Float> TryFrom<Matrix<3, 3, T>> for Transformation<T> {
+        type Error = Error;
+
+        /// ## New transformation matrix from a rotation matrix
+        /// ```rust
+        /// todo!("add test cases")
+        /// ```
+        fn try_from(mut rotation: Matrix<3, 3, T>) -> core::result::Result<Self, Self::Error> {
+            Self::validate_rotation(&mut rotation)?;
+
+            Ok(Self {
+                rotation,
+                ..Default::default()
+            })
+        }
+    }
+
+    impl<T: Float> TryFrom<Matrix<4, 4, T>> for Transformation<T> {
+        type Error = Error;
+
+        /// ```rust
+        /// todo!("add test cases")
+        /// ```
+        fn try_from(value: Matrix<4, 4, T>) -> core::result::Result<Self, Self::Error> {
+            // rotation
+            let rotation = Matrix::from([
+                [value[0][0], value[0][1], value[0][2]],
+                [value[1][0], value[1][1], value[1][2]],
+                [value[2][0], value[2][1], value[2][2]],
+            ]);
+
+            let translation = Matrix::from([
+                [value[0][3]],
+                [value[1][3]],
+                [value[2][3]],
+            ]);
+
+            Self::try_from((rotation, translation))
+        }
+    }
+
+    impl<T: Float> TryFrom<(Matrix<3, 3, T>, Matrix<3, 1, T>)> for Transformation<T> {
+        type Error = Error;
+
+        /// ```rust
+        /// todo!("add test cases")
+        /// ```
+        fn try_from((mut rotation, translation): (Matrix<3, 3, T>, Matrix<3, 1, T>)) -> core::result::Result<Self, Self::Error> {
+            Self::validate_rotation(&mut rotation)?;
+
+            Ok(Self {
+                rotation,
+                translation,
+            })
+        }
+    }
+
+    impl<T: Float> From<Matrix<3, 1, T>> for Transformation<T> {
+        /// ## New transformation matrix from a translation matrix
+        /// ```rust
+        /// use vector::{transformation::Transformation, matrix::Matrix};
+        ///
+        /// let translation = Matrix::from([
+        ///     [1.],
+        ///     [2.],
+        ///     [3.],
+        /// ]);
+        ///
+        /// let matrix = Matrix::from([
+        ///     [1., 0., 0., 1.],
+        ///     [0., 1., 0., 2.],
+        ///     [0., 0., 1., 3.],
+        ///     [0., 0., 0., 1.],
+        /// ]);
+        ///
+        /// assert_eq!(Transformation::from(translation), matrix);
+        /// ```
+        fn from(translation: Matrix<3, 1, T>) -> Self {
+            Self {
+                translation,
+                ..Default::default()
+            }
+        }
+    }
+
+    impl<T: Float> PartialEq<Matrix<4, 4, T>> for Transformation<T> {
+        /// Method compares transformation matrix to a 4x4 matrix
+        fn eq(&self, other: &Matrix<4, 4, T>) -> bool {
+            (0..3).flat_map(|r| (0..3).map(move |c| (r, c))).all(|(r, c)| self.rotation[r][c] == other[r][c]) // rotation
+            &&
+            (0..3).all(|c| self.translation[c][0] == other[c][3]) // translation
+        }
+    }
+
+    impl<T: Float> PartialEq for Transformation<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.rotation == other.rotation && self.translation == other.translation
+        }
+    }
+
+    impl<T: Float> core::ops::Mul for Transformation<T> {
+        type Output = Self;
+
+        /// Multiplication of transformation matrices is a transformation matrix
+        /// ```rust
+        /// use vector::{transformation::Transformation, matrix::Matrix};
+        ///
+        /// // body b with respect to frame s
+        /// let sb = Matrix::from([
+        ///     [0., 0., 1., 400.],
+        ///     [0., 1., 0., 50.],
+        ///     [1., 0., 0., 300.],
+        ///     [0., 0., 0., 1.],
+        /// ]);
+        ///
+        /// // body c with respect to frame b
+        /// let bc = Matrix::from([
+        ///     [0., 0., 1., 300.],
+        ///     [0., 1., 0., 100.],
+        ///     [1., 0., 0., 120.],
+        ///     [0., 0., 0., 1.],
+        /// ]);
+        ///
+        /// let sc = Matrix::from([
+        ///     [1., 0., 0., 520.],
+        ///     [0., 1., 0., 150.],
+        ///     [0., 0., 1., 600.],
+        ///     [0., 0., 0., 1.],
+        /// ]);
+        ///
+        /// assert_eq!(Transformation::try_from(sb).unwrap() * Transformation::try_from(bc).unwrap(), Transformation::try_from(sc).unwrap());
+        /// ```
+        fn mul(self, rhs: Self) -> Self::Output {
+            let rotation = &self.rotation * rhs.rotation;
+            let translation = self.rotation * rhs.translation + self.translation;
 
             Self {
                 rotation,
@@ -1465,12 +1728,248 @@ pub mod transformation {
             for i in 0..3 {
                 write!(f, "│\t")?;
                 for j in 0..3 {
-                    write!(f, "{}\t", self.rotation.0.get(i, j))?;
+                    write!(f, "{}\t", self.rotation[i][j])?;
                 }
-                writeln!(f, "{}\t│", self.translation.get(i, 0))?;
+                writeln!(f, "{}\t│", self.translation[i][0])?;
             }
 
             writeln!(f, "│\t{0}\t{0}\t{0}\t{1}\t│", 0., 1.)
+        }
+    }
+
+    /// Denote velocity
+    #[derive(Debug)]
+    pub struct Twist<T: Float> {
+        angular: Matrix<3, 1, T>,
+        linear: Matrix<3, 1, T>,
+    }
+
+    impl<T: Float> From<Matrix<6, 1, T>> for Twist<T> {
+        /// Converts a column vector with 6 elements to a [Twist]
+        /// ```rust
+        /// use vector::{matrix::Matrix, transformation::Twist};
+        ///
+        /// let mat = Matrix::from([
+        ///     [12.],
+        ///     [1.],
+        ///     [1.],
+        ///     [0.898],
+        ///     [-0.2222],
+        ///     [0.898],
+        /// ]);
+        ///
+        /// let _twist: Twist<f32> = mat.into();
+        /// ```
+        fn from(value: Matrix<6, 1, T>) -> Self {
+            Self {
+                angular: Matrix::from([[value[0][0]], [value[1][0]], [value[2][0]]]),
+                linear: Matrix::from([[value[3][0]], [value[4][0]], [value[5][0]]]),
+            }
+        }
+    }
+
+    impl<T: Float> From<(Matrix<3, 1, T>, Matrix<3, 1, T>)> for Twist<T> {
+        /// Converts a tuple of 2 elements with type [Matrix<3, 3>] to Twist
+        /// ```rust
+        /// use vector::{matrix::Matrix, transformation::Twist};
+        ///
+        /// let angular = Matrix::from([
+        ///     [12.],
+        ///     [1.],
+        ///     [1.],
+        /// ]);
+        /// let linear = Matrix::from([
+        ///     [0.898],
+        ///     [-0.2222],
+        ///     [0.898],
+        /// ]);
+        ///
+        /// let _twist: Twist<f32> = (angular, linear).into();
+        /// ```
+        fn from((angular, linear): (Matrix<3, 1, T>, Matrix<3, 1, T>)) -> Self {
+            Self {
+                angular,
+                linear,
+            }
+        }
+    }
+
+    impl<T: Float> Twist<T> {
+        pub fn new(angular: Matrix<3, 1, T>, linear: Matrix<3, 1, T>) -> Self {
+            Self {
+                angular,
+                linear,
+            }
+        }
+
+        /// creates the adjoint 4x4 matrix for [Twist].
+        /// ```rust
+        /// use vector::{matrix::Matrix, transformation::Twist};
+        ///
+        /// let matrix = Matrix::from([
+        ///     [0.],
+        ///     [0.],
+        ///     [-2.],
+        ///     [2.8],
+        ///     [4.],
+        ///     [0.],
+        /// ]);
+        ///
+        /// let res = Matrix::from([
+        ///     [0., ]
+        /// ]);
+        /// ```
+        pub fn adjoint(&self) -> Matrix<4, 4, T> {
+            let adjoint = skew_symmetric(&self.angular);
+            let zero = T::zero().into();
+
+            Matrix::from([
+                [adjoint[0][0], adjoint[0][1], adjoint[0][2], self.linear[0][0]],
+                [adjoint[1][0], adjoint[1][1], adjoint[1][2], self.linear[1][0]],
+                [adjoint[2][0], adjoint[2][1], adjoint[2][2], self.linear[2][0]],
+                [zero; 4],
+            ]) 
+        }
+
+        /// creates [Twist] from [Screw] if screw represents transformation for a unit time
+        pub fn from_screw_for_unit_time(Screw { mut angular, mut linear, theta }: Screw<T>) -> Self {
+            angular *= theta;
+            linear *= theta;
+            
+            Self {
+                angular,
+                linear,
+            }
+        }
+    }
+
+    impl<T: Float> Display for Twist<T> {
+        /// Display for Twist
+        /// ```rust
+        /// use vector::{matrix::Matrix, transformation::Twist};
+        ///
+        /// let matrix = Matrix::from([
+        ///     [0.],
+        ///     [0.],
+        ///     [-2.],
+        ///     [2.8],
+        ///     [4.],
+        ///     [0.],
+        /// ]);
+        ///
+        /// assert_eq!(Twist::from(matrix).to_string(), "│\t0\t│\n│\t0\t│\n│\t-2\t│\n│\t2.8\t│\n│\t4\t│\n│\t0\t│\n");
+        /// ```
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for i in 0..3 {
+                writeln!(f, "│\t{}\t│", self.angular[i][0])?;
+            }
+            for i in 0..3 {
+                writeln!(f, "│\t{}\t│", self.linear[i][0])?;
+            }
+
+            Ok(())
+        }
+    }
+
+    /// Denote screw transformation
+    /// Here $\theta$ is analogous to time.
+    /// If [Twist] denote velocity, and if time is known, one can identify the [Transformation] from initial to final position.
+    /// [Screw] can be thought of another way of representing [Transformation].
+    #[derive(Debug)]
+    pub struct Screw<T: Float> {
+        // one of angular and linear is normal
+        angular: Matrix<3, 1, T>,
+        linear: Matrix<3, 1, T>,
+        theta: T,
+    }
+
+    impl<T: Float> Screw<T> {
+        /// Creates a new screw from angular and linear matrices and the given $\theta$.
+        pub fn new(angular: Matrix<3, 1, T>, linear: Matrix<3, 1, T>, theta: T) -> Result<Self> {
+            if !linear.has_normal_columns() {
+                Err(Error::Screw(FromScrewError::TranslationAxisNotNormal))
+            }
+            else if !angular.is_zero() && !angular.has_normal_columns() {
+                Err(Error::Screw(FromScrewError::RotationAxisNotNormal))
+            }
+            else {
+                Ok(Self {
+                    angular,
+                    linear,
+                    theta,
+                })
+            }
+        }
+
+        /// Creates [Screw] from [Twist] if twist is applied for unit time
+        pub fn from_twist_for_unit_time(Twist { mut angular, mut linear }: Twist<T>) -> Self {
+            if !linear.is_zero() {
+                let theta = match angular.is_zero() {
+                    true => (0..3).map(|r| linear[r][0].norm_squared()).sum::<T>().sqrt(),
+                    false => {
+                        let theta = (0..3).map(|r| angular[r][0].norm_squared()).sum::<T>().sqrt();
+                        angular /= theta;
+                        theta
+                    },
+                };
+
+                linear /= theta;
+                
+                Self {
+                    angular,
+                    linear,
+                    theta,
+                }
+            }
+            else {
+                Self {
+                    angular,
+                    linear,
+                    theta: T::zero(),
+                }
+            }
+        }
+    }
+
+    pub fn forward_kinematice_in_body_frame<T: Float>(m: Transformation<T>, b_list: &[Screw<T>]) -> Transformation<T> {
+        todo!()
+    }
+
+    pub fn forward_kinematice_in_space_frame<T: Float>(m: Transformation<T>, s_list: &[Screw<T>]) -> Transformation<T> {
+        todo!()
+    }
+
+    #[derive(Debug)]
+    pub enum Error {
+        Dependent,
+        Singular,
+        Orientation,
+        Screw(FromScrewError),
+    }
+
+    impl Display for Error {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::Dependent => write!(f, "columns of rotation matrix not orthogonal"),
+                Self::Singular => write!(f, "singular matrix"),
+                Self::Orientation => write!(f, "rotation matrix not right handed. this represents reflection matrix."),
+                Self::Screw(e) => write!(f, "error while making transformation matrix. {e}"),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub enum FromScrewError {
+        RotationAxisNotNormal,
+        TranslationAxisNotNormal,
+    }
+
+    impl Display for FromScrewError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::RotationAxisNotNormal => write!(f, "screw axis should be normalized"),
+                Self::TranslationAxisNotNormal => write!(f, "translation vector should be normal if there is no rotation (theta defines the magnitude of translation).")
+            }
         }
     }
 }
