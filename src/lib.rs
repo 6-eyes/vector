@@ -57,6 +57,10 @@ pub trait Float:
     }
 
     fn tolerence() -> Self;
+
+    fn sin(self) -> Self;
+
+    fn cos(self) -> Self;
 }
 
 impl Float for f32 {
@@ -105,6 +109,16 @@ impl Float for f32 {
         const TOLERENCE_F32: f32 = 1e-6;
         TOLERENCE_F32
     }
+
+    #[inline(always)]
+    fn sin(self) -> Self {
+       self.sin() 
+    }
+
+    #[inline(always)]
+    fn cos(self) -> Self {
+        self.cos()
+    }
 }
 
 impl Float for f64 {
@@ -152,6 +166,16 @@ impl Float for f64 {
     fn tolerence() -> Self {
         const TOLERENCE_F64: f64 = 1e-12;
         TOLERENCE_F64
+    }
+
+    #[inline(always)]
+    fn sin(self) -> Self {
+        self.sin()
+    }
+
+    #[inline(always)]
+    fn cos(self) -> Self {
+        self.cos()
     }
 }
 
@@ -202,7 +226,15 @@ impl<T: Float> Complex<T> {
     /// ```
     #[inline(always)]
     pub fn magnitude(&self) -> T {
-        self.norm_squared().sqrt()
+        if self.is_real() {
+            self.0.abs()
+        }
+        else if self.is_imaginary()  {
+            self.1.abs()
+        }
+        else {
+            self.norm_squared().sqrt()
+        }
     }
 
     #[inline(always)]
@@ -218,6 +250,51 @@ impl<T: Float> Complex<T> {
     #[inline(always)]
     pub fn normalize(self) -> Self {
         self / self.magnitude()
+    }
+
+    /// ### Is real
+    /// Returns `true` is the complex number has an imaginary value lesser than the tolerence.
+    ///
+    /// #### Example
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let complex = Complex::from(2.);
+    /// assert_eq!(complex.is_real(), true);
+    /// ```
+    #[inline(always)]
+    pub fn is_real(&self) -> bool {
+        self.1.abs() <= T::tolerence()
+    }
+
+    /// ### Is imaginary
+    /// Returns `true` is the complex number has an real value lesser than the tolerence.
+    ///
+    /// #### Example
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let complex = Complex::from((0., 2.));
+    /// assert_eq!(complex.is_imaginary(), true);
+    /// ```
+    #[inline(always)]
+    pub fn is_imaginary(&self) -> bool {
+        self.0.abs() <= T::tolerence()
+    }
+
+    /// ### Is zero
+    /// Returns `true` if both the real and imaginary parts have values lerrer than the tolerence
+    ///
+    /// #### Example
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let complex = Complex::from((0., 0.));
+    /// assert_eq!(complex.is_zero(), true);
+    /// ```
+    #[inline(always)]
+    pub fn is_zero(&self) -> bool {
+        self.is_imaginary() && self.is_real()
     }
 }
 
@@ -321,6 +398,41 @@ impl<T: Float> core::ops::Mul<T> for Complex<T> {
     }
 }
 
+impl<T: Float> core::ops::Mul<&Complex<T>> for Complex<T> {
+    type Output = Complex<T>;
+
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// assert_eq!(a * &b, Complex::from((-5., 10.)))
+    /// ```
+    fn mul(mut self, rhs: &Complex<T>) -> Self::Output {
+        self *= rhs;
+        self
+    }
+}
+
+impl<T: Float> core::ops::Mul<&Complex<T>> for &Complex<T> {
+    type Output = Complex<T>;
+
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// assert_eq!(&a * &b, Complex::from((-5., 10.)))
+    /// ```
+    fn mul(self, rhs: &Complex<T>) -> Self::Output {
+        let mut complex = self.to_owned();
+        complex *= rhs;
+        complex
+    }
+}
+
 impl<T: Float> core::ops::MulAssign for Complex<T> {
     /// ```rust
     /// use vector::Complex;
@@ -333,6 +445,22 @@ impl<T: Float> core::ops::MulAssign for Complex<T> {
     /// assert_eq!(a, Complex::from((-5., 10.)))
     /// ```
     fn mul_assign(&mut self, rhs: Self) {
+        *self = Self(self.0 * rhs.0 - self.1 * rhs.1, self.0 * rhs.1 + self.1 * rhs.0);
+    }
+}
+
+impl<T: Float> core::ops::MulAssign<&Complex<T>> for Complex<T> {
+    /// ```rust
+    /// use vector::Complex;
+    ///
+    /// let mut a = Complex::from((1., 2.));
+    /// let b = Complex::from((3., 4.));
+    /// 
+    /// a *= &b;
+    ///
+    /// assert_eq!(a, Complex::from((-5., 10.)))
+    /// ```
+    fn mul_assign(&mut self, rhs: &Complex<T>) {
         *self = Self(self.0 * rhs.0 - self.1 * rhs.1, self.0 * rhs.1 + self.1 * rhs.0);
     }
 }
@@ -535,6 +663,12 @@ pub mod matrix {
             Self([[T::zero().into(); C]; R])
         }
 
+        /// Getter
+        /// Gets the value present at the index (r, c).
+        pub fn get(&self, r: usize, c: usize) -> &Complex<T> {
+            self.0.get(r).expect("row index out of bounds").get(c).expect("column index out of bounds")
+        }
+
         /// Returns a new transposed matrix.
         ///
         /// ### Example
@@ -709,9 +843,23 @@ pub mod matrix {
             Ok((q, r))
         }
 
-        /// ### Singular Value Decomposition
-        pub fn svd(&self) -> (Matrix<R, R, T>, Matrix<R, C, T>, Matrix<C, C, T>) {
-            todo!()
+        /// ## Column normalization
+        /// Method to normalize the columns of a given matrix
+        /// ### Example
+        /// ```rust
+        /// use vector::matrix::Matrix;
+        ///
+        /// let mut a = Matrix::from([[12., -51., 4.], [6., 167., -68.], [-4., 24., -41.]]);
+        /// a.normalize_columns();
+        /// let normalized_a = Matrix::from([[0.8571428571428571, -0.2893526786447601, 0.05031148036146422], [0.42857142857142855, 0.9474881830132341, -0.8552951661448918], [-0.2857142857142857, 0.1361659664210636, -0.5156926737050083]]);
+        ///
+        /// assert_eq!(normalized_a, a);
+        /// ```
+        pub fn normalize_columns(&mut self) {
+            for c in 0..C {
+                let sum = (0..R).map(|r| self.0[r][c].norm_squared()).sum::<T>().sqrt();
+                (0..R).for_each(|r| self.0[r][c] /= sum);
+            }
         }
     }
 
@@ -856,6 +1004,17 @@ pub mod matrix {
             }
 
             Ok(inverse)
+        }
+
+        /// Method to check if the square matrix is identity or not.
+        /// todo!()
+        pub fn is_identity(&self) -> bool {
+            self.0.iter().enumerate().all(|(r, row)| {
+                row.iter().enumerate().all(|(c, &val)| {
+                    let expected = if r == c { T::one().into() } else { T::zero().into() };
+                    (val - expected).magnitude().abs() <= T::tolerence()
+                })
+            })
         }
     }
 
@@ -1035,7 +1194,7 @@ pub mod matrix {
         }
     }
 
-    /// ## Matrix multiplication by a scalar
+    /// ## Matrix multiplication by a scalar at lhs
     impl<T: Float, Z: Into<Complex<T>>, const R: usize, const C: usize> core::ops::Mul<Z> for Matrix<R, C, T> {
         type Output = Self;
 
@@ -1058,6 +1217,16 @@ pub mod matrix {
             let val = rhs.into();
             self.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c *= val));
         }
+    }
+
+    /// ## Matrix multiplication by a complex at rhs
+    impl<T: Float, const R: usize, const C: usize> core::ops::Mul<Matrix<R, C, T>> for Complex<T> {
+        type Output = Matrix<R, C, T>;
+
+        fn mul(self, mut rhs: Matrix<R, C, T>) -> Self::Output {
+            rhs *= self;
+            rhs
+        } 
     }
 
     /// ## Matrix addition
@@ -1168,6 +1337,140 @@ pub mod matrix {
         #[should_panic]
         fn new_dimensionless_identity_matrix() {
             Matrix::<0, 0, f32>::new_identity();
+        }
+    }
+}
+
+pub mod transformation {
+    use core::{fmt::Display, ops::Mul};
+    use crate::{matrix::{Matrix, MatrixError}, Complex, Float};
+
+    #[derive(Debug)]
+    pub struct Rotation<T: Float>(Matrix::<3, 3, T>);
+
+    impl<T: Float> Rotation<T> {
+        /// Makes the rotation matrix using the **Rodrigues' formula**.
+        /// ### Rodrigues' formula
+        /// $$\mbox{Rot}(\hat\omega, \theta) = e^{\left[\hat\omega\right] \theta} = I + \sim\theta\left[\hat\omega\right] + (1 - \cos \theta) \left[\hat\omega\right]^2 $$
+        /// #### Example
+        /// ```rust
+        /// use vector::{matrix::Matrix, transformation::Rotation};
+        ///
+        /// let omega = Matrix::from([[0.], [0.866], [0.5]]);
+        /// let theta_degrees = 30.;
+        /// let rot = Rotation::from_axis_and_angle(omega, theta_degrees * std::f32::consts::PI / 180.);
+        ///
+        /// let answer = Matrix::from([[0.8660313, -0.25, 0.433], [0.25, 0.96650636, 0.058011007], [-0.433, 0.058011007, 0.8995249]]);
+        ///
+        /// assert_eq!(rot, answer);
+        /// ```
+        pub fn from_axis_and_angle(omega: Matrix<3, 1, T>, theta: T) -> Self {
+            // 1. calculate skew symmetric matrix
+            let skew_symmetric = Matrix::from([
+                [T::zero().into(), -omega.get(2, 0).to_owned(), omega.get(1, 0).to_owned()],
+                [omega.get(2, 0).to_owned(), T::zero().into(), -omega.get(0, 0).to_owned()],
+                [-omega.get(1, 0).to_owned(), omega.get(0, 0).to_owned(), T::zero().into()],
+            ]);
+
+            let skew_symmetric_squared = &skew_symmetric * &skew_symmetric;
+
+            // 2. Rodrigues' formula
+            Self(Matrix::new_identity() + Complex::from(theta.sin()) * skew_symmetric + (Complex::from(T::one()) - Complex::from(theta.cos())) * skew_symmetric_squared)
+        }
+
+        /// Inverse of rotation matrices is same as transpose.
+        /// $$R^{-1} = R^T$$
+        pub fn inverse(&self) -> Self {
+            Self(self.0.transpose())
+        }
+    }
+
+    impl<T: Float> PartialEq<Matrix<3, 3, T>> for Rotation<T> {
+        fn eq(&self, other: &Matrix<3, 3, T>) -> bool {
+            &self.0 == other
+        }
+    }
+
+    impl<T: Float> TryFrom<Matrix<3, 3, T>> for Rotation<T> {
+        type Error = MatrixError;
+
+        /// Creates Rotation matrix from a 3x3 matrix.
+        /// Normally only 3 entries (out of 9) can be selcted independently in a rotation matrix. These correspond to the angles to be rotated by each axis.
+        ///
+        /// The rotation matrix has 9 elements. Hence 6 constraints need to be applied.
+	    /// 1) The unit norm condition: $\hat{x}_b$, $\hat{y}_b$, $\hat{z}_b$ are all unit vectors. $$\begin{aligned} r_{11}^2 + r_{21}^2 + r_{31}^2 &= 1 \\ r_{12}^2 + r_{22}^2 + r_{32}^2 &= 1 \\ r_{13}^2 + r_{23}^2 + r_{33}^2 &= 1 \end{aligned}$$
+	    /// 2) The orthogonality condition (columns are independent): $$\begin{aligned} \hat{x}_b . \hat{y}_b &= r_{11}r_{12} + r_{21}r_{22} + r_{31}r_{32} &= 0 \\ \hat{y}_b . \hat{z}_b &= r_{12}r_{13} + r_{22}r_{23} + r_{32}r_{32} &= 0 \\ \hat{x}_b . \hat{z}_b &= r_{11}r_{13} + r{21}r_{23} + r_{31}r_{33} &= 0 \end{aligned}$$
+        ///
+        /// Also for the frame to be right handed, an additional condition should be that the determinant should be `+1`.
+        /// If the determinant is `-1`, it would lead to reflections or inversions.
+        fn try_from(mut value: Matrix<3, 3, T>) -> Result<Self, Self::Error> {
+            if value.determinant().magnitude() <= T::tolerence() {
+                return Err(MatrixError::Singular);
+            }
+
+            // columns should be orthogonal
+            for (c1, c2) in [(0, 1), (0, 2), (1, 2)] {
+                if (0..3).map(|i| value.get(i, c1) * value.get(i, c2)).sum::<Complex<T>>().is_zero() {
+                    return Err(MatrixError::Dependent);
+                }
+            }
+
+            // normalize
+            value.normalize_columns();
+
+            // check orientation
+            Ok(Self(value))
+        }
+    }
+
+    impl<T: Float> core::ops::Neg for Rotation<T> {
+        type Output = Self;
+
+        fn neg(self) -> Self::Output {
+            Self(-self.0)    
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct Transformation<T: Float> {
+        rotation: Rotation<T>,
+        translation: Matrix<3, 1, T>,
+    }
+
+    impl<T: Float> Transformation<T> {
+        /// Method to find inverse of the rotation matrix
+        /// $$T^{-1} = \begin{bmatrix} R & p \\ 0 & 1 \end{bmatrix}^{-1} = \begin{bmatrix} R^T & -R^Tp \\ 0 & 1\end{bmatrix}$$
+        fn inverse(&self) -> Self {
+            let rotation = self.rotation.inverse();
+            let translation = -(rotation.0.clone()) * &self.translation;
+
+            Self {
+                rotation,
+                translation,
+            }
+        }
+    }
+
+    impl<T: Float> Display for Transformation<T> {
+        /// ### Example
+        ///
+        /// Consider the matrix:$$\begin{bmatrix} 10 & 0 & 20 \\\ 0 & 30 & 0 \\\ 200 & 0 & 100 \end{bmatrix}$$
+        /// ```rust
+        /// use vector::{transformation::Transformation, matrix::Matrix};
+        ///
+        /// let matrix = Matrix::from([[10., 0., 20.], [0., 30., 0.], [200., 0., 100.]]);
+        /// assert_eq!("│\t10\t0\t20\t│\n│\t0\t30\t0\t│\n│\t200\t0\t100\t│\n", matrix.to_string());
+        /// ```
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for i in 0..3 {
+                write!(f, "│\t")?;
+                for j in 0..3 {
+                    write!(f, "{}\t", self.rotation.0.get(i, j))?;
+                }
+                writeln!(f, "{}\t│", self.translation.get(i, 0))?;
+            }
+
+            writeln!(f, "│\t{0}\t{0}\t{0}\t{1}\t│", 0., 1.)
         }
     }
 }
