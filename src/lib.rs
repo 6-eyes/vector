@@ -708,7 +708,7 @@ pub mod matrix {
 
         /// ## Inner product
         /// Calculates the inner product of two matrix.
-        /// $$<A, B> = \mbox{trace}(A^HB)$$
+        /// $$<A, B> = trace(A^HB)$$
         /// where, $A^H$ is the *conjugate transpose* or the *Hermitian transpose*.
         pub fn inner_product(&self, mut other: Self) -> Complex<T> {
             other.0.iter_mut().for_each(|r| r.iter_mut().for_each(|c| *c = c.conjugate()));
@@ -1189,6 +1189,25 @@ pub mod matrix {
         }
     }
 
+    impl<T: Float, Z: Into<Complex<T>> + Clone, const R: usize, const C: usize> core::ops::Mul<&Z> for &Matrix<R, C, T> {
+        type Output = Matrix<R, C, T>;
+
+        /// ### Example
+        ///
+        /// ```rust
+        /// use vector::{matrix::Matrix, Complex};
+        ///
+        /// let a = Matrix::from([[1., 8., 3.], [9., 4., 5.], [6., 2., 7.]]);
+        /// assert_eq!(&a * &2., Matrix::from([[2., 16., 6.], [18., 8., 10.], [12., 4., 14.]]));
+        /// ```
+        fn mul(self, rhs: &Z) -> Self::Output {
+            let mut res = self.clone();
+            res *= rhs.clone().into();
+
+            res
+        }
+    }
+
     impl <T: Float, const R: usize, const C: usize> core::ops::Mul<&Matrix<R, C, T>> for Complex<T> {
         type Output = Matrix<R, C, T>;
 
@@ -1434,63 +1453,6 @@ pub mod transformation {
             }
         }
 
-        /// ## New transformation matrix from screw representation
-        /// The screw axis has a pitch which signifies the translation performed after rotating a certain angle along the screw axis.
-        /// The pitch is denoted as:$$h = \hat{\omega}^T s / \theta$$
-        /// ### Case 1: The pitch of the screw axis is finite
-        /// $\Vert \omega \Vert = 1$ and $\theta$ corresponds to the angle of rotation along the screw axis.
-        /// ### Case 2: The pitch of the screw axis is infinite
-        /// In this case $\omega = 0$ and $\Vert s \Vert = 1$ and $\theta$ corresponds to the vertical distance travelled along the screw axis.
-        ///
-        /// ### Rodrigues' formula
-        /// $$\mbox{Rot}(\hat\omega, \theta) = e^{\left[\hat\omega\right] \theta} = I + \sim\theta\left[\hat\omega\right] + (1 - \cos \theta) \left[\hat\omega\right]^2 $$
-        pub fn from_screw(axis: Matrix<3, 1, T>, translation: Matrix<3, 1, T>, theta: T) -> Result<Self> {
-            // no movement
-            let mut rotation = Matrix::new_identity();
-            if theta.abs() < T::tolerence() {
-                Ok(Self {
-                    rotation,
-                    translation,
-                })
-            }
-            // infinite pitch
-            else if axis.is_zero() {
-                match translation.has_normal_columns() {
-                    true => Ok(Self {
-                        rotation,
-                        translation: translation * theta,
-                    }),
-                    false => Err(Error::Screw(FromScrewError::RotationAxisNotNormal)),
-                }
-            }
-            // finite pitch
-            else {
-                if !axis.has_normal_columns() {
-                    return Err(Error::Screw(FromScrewError::RotationAxisNotNormal));
-                }
-
-                // the rotation matrix is obtained from rodrigurs formula
-                // 1. calculate skew symmetric matrix
-                let skew_symmetric = skew_symmetric(&axis);
-
-                let skew_symmetric_squared = &skew_symmetric * &skew_symmetric;
-
-                let complex_one_minus_cos = Complex::from(T::one() - theta.cos());
-                let sin = theta.sin();
-
-                // 2. Rodrigues' formula
-                rotation += Complex::from(sin) * skew_symmetric.clone() + complex_one_minus_cos * skew_symmetric_squared.clone();
-
-                // Chasles-Mozzi theorem
-                let translation = (Matrix::new_identity() + complex_one_minus_cos * skew_symmetric + Complex::from(theta - sin) * skew_symmetric_squared) * translation;
-
-                Ok(Self {
-                    rotation,
-                    translation,
-                })
-            }
-        }
-
         /// Method to validate the rotation matrix
         /// Normally only 3 entries (out of 9) can be selcted independently in a rotation matrix. These correspond to the angles to be rotated by each axis.
         ///
@@ -1515,7 +1477,6 @@ pub mod transformation {
 
             // check orientation
             let determinant = rotation.determinant();
-            println!("rotation:\n{rotation}\ndeterminant: {determinant}");
             if determinant.is_imaginary() || (determinant.real() - T::one()).abs() > T::tolerence() {
                 return Err(Error::Orientation);
             }
@@ -1539,8 +1500,31 @@ pub mod transformation {
         }
     }
 
-    impl<T: Float> From<Screw<T>> for Transformation<T> {
-        fn from(Screw { angular, linear, theta }: Screw<T>) -> Self {
+    impl<T: Float> From<&Screw<T>> for Transformation<T> {
+        /// ### Example 2
+        /// Rotation matrix is non zero. Theta here denotes the angle to be rotated about the axis
+        /// **Note:** There is no need to check the validity of rotation matrix since angular component is of [Screw] is always normalized.
+        /// ```rust
+        /// use vector::{transformation::{Transformation, Screw}, matrix::Matrix};
+        ///
+        /// let screw = Screw::new(
+        ///     Matrix::from([[0.], [1.], [0.]]),
+        ///     Matrix::from([[-0.089], [0.], [0.]]),
+        ///     -core::f32::consts::PI / 2.,
+        /// ).unwrap();
+        ///
+        /// let transformation = Transformation::from(&screw);
+        ///
+        /// assert_eq!(transformation, Matrix::from([
+        ///     [0., 0., -1., 0.089],
+        ///     [0., 1., -0., 0.],
+        ///     [1., 0., -0., 0.089],
+        ///     [0., 0., -0., 0.],
+        /// ]));
+        /// ```
+        /// ### Example 2
+        /// Rotation matrix is zero. Theta here denotes the times the linear component needs to be multiplied.
+        fn from(Screw { angular, linear, theta }: &Screw<T>) -> Self {
             // no movement
             let mut rotation = Matrix::new_identity();
             // infinite pitch
@@ -1561,7 +1545,7 @@ pub mod transformation {
                 rotation += Complex::from(sin) * &skew_symmetric + complex_one_minus_cos * &skew_symmetric_squared;
 
                 // 3. Translation matrix
-                (Matrix::new_identity() + complex_one_minus_cos * skew_symmetric + Complex::from(theta - sin) * skew_symmetric_squared) * linear
+                (Matrix::new_identity() * theta + complex_one_minus_cos * skew_symmetric + Complex::from(*theta - sin) * skew_symmetric_squared) * linear
             };
 
             Self {
@@ -1886,19 +1870,18 @@ pub mod transformation {
     impl<T: Float> Screw<T> {
         /// Creates a new screw from angular and linear matrices and the given $\theta$.
         pub fn new(angular: Matrix<3, 1, T>, linear: Matrix<3, 1, T>, theta: T) -> Result<Self> {
-            if !linear.has_normal_columns() {
-                Err(Error::Screw(FromScrewError::TranslationAxisNotNormal))
+            if angular.is_zero() && !linear.has_normal_columns() {
+                return Err(Error::Screw(FromScrewError::TranslationAxisNotNormal));
             }
-            else if !angular.is_zero() && !angular.has_normal_columns() {
-                Err(Error::Screw(FromScrewError::RotationAxisNotNormal))
+            else if !angular.has_normal_columns() {
+                return Err(Error::Screw(FromScrewError::RotationAxisNotNormal));
             }
-            else {
-                Ok(Self {
-                    angular,
-                    linear,
-                    theta,
-                })
-            }
+
+            Ok(Self {
+                angular,
+                linear,
+                theta,
+            })
         }
 
         /// Creates [Screw] from [Twist] if twist is applied for unit time
@@ -1931,12 +1914,81 @@ pub mod transformation {
         }
     }
 
+    /// ## Fowrard kinematice in body frame
+    /// ### Example
+    /// **Reference:** Example 4.7 from Modern Robotics
+    /// ```rust
+    /// use vector::{matrix::Matrix, transformation::{Transformation, Screw, forward_kinematice_in_body_frame}};
+    /// use core::f32::consts::PI;
+    ///
+    /// let m = Transformation::try_from(Matrix::from([
+    ///     [1., 0., 0., 0.],
+    ///     [0., 1., 0., 0.],
+    ///     [0., 0., 1., 0.060 + 0.3 + 0.55],
+    ///     [0., 0., 0., 1.],
+    /// ])).unwrap();
+    ///
+    /// let b_list = [
+    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero(), 0.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060 + 0.3 + 0.55], [0.], [0.]]), PI / 4.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero(), 0.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060 + 0.3], [0.], [0.045]]), -PI / 4.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::from([[0.], [0.], [0.]]), 0.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060], [0.], [0.]]), -PI / 2.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::from([[0.], [0.], [0.]]), 0.).unwrap(),
+    /// ];
+    ///
+    /// let fk = forward_kinematice_in_body_frame(m, &b_list);
+    ///
+    /// let fk_prediction = Matrix::from([
+    ///     [0., 0., -0.99999994, 0.31572855],
+    ///     [0., 1., 0., 0.],
+    ///     [0.99999994, 0., 0., 0.65708894],
+    ///     [0., 0., 0., 1.],
+    /// ]);
+    ///
+    /// assert_eq!(fk, fk_prediction);
+    /// ```
     pub fn forward_kinematice_in_body_frame<T: Float>(m: Transformation<T>, b_list: &[Screw<T>]) -> Transformation<T> {
-        todo!()
+        b_list.iter().fold(m, |acc, s| acc * Transformation::from(s))
     }
 
+    /// ## Fowrard kinematice in space frame
+    /// ### Example
+    /// **Reference:** Example 4.5 from Modern Robotics
+    /// ```rust
+    /// use vector::{matrix::Matrix, transformation::{Transformation, Screw, forward_kinematice_in_space_frame}};
+    /// use core::f32::consts::PI;
+    ///
+    /// let m = Transformation::try_from(Matrix::from([
+    ///     [-1., 0., 0., 0.425 + 0.392],
+    ///     [0., 0., 1., 0.109 + 0.082],
+    ///     [0., 1., 0., 0.089 - 0.095],
+    ///     [0., 0., 0., 1.],
+    /// ])).unwrap();
+    ///
+    /// let s_list = [
+    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero(), 0.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.]]), -PI / 2.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.425]]), 0.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.425 + 0.392]]), 0.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [0.], [-1.]]), Matrix::from([[-0.109], [0.425 + 0.392], [0.]]), PI / 2.).unwrap(),
+    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.095 - 0.089], [0.], [0.425 + 0.392]]), 0.).unwrap(),
+    /// ];
+    ///
+    /// let fk = forward_kinematice_in_space_frame(m, &s_list);
+    ///
+    /// let fk_prediction = Matrix::from([
+    ///     [0., -1., 0., 0.095],
+    ///     [1., 0., 0., 0.10899997],
+    ///     [0., 0., 1., 0.98800004],
+    ///     [0., 0., 0., 1.],
+    /// ]);
+    ///
+    /// assert_eq!(fk, fk_prediction);
+    /// ```
     pub fn forward_kinematice_in_space_frame<T: Float>(m: Transformation<T>, s_list: &[Screw<T>]) -> Transformation<T> {
-        todo!()
+        s_list.iter().rev().fold(m, |acc, s| Transformation::from(s) * acc)
     }
 
     #[derive(Debug)]
@@ -1951,7 +2003,7 @@ pub mod transformation {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self {
                 Self::Dependent => write!(f, "columns of rotation matrix not orthogonal"),
-                Self::Singular => write!(f, "singular matrix"),
+                Self::Singular => write!(f, "singular matrix received while creating rotation matrix"),
                 Self::Orientation => write!(f, "rotation matrix not right handed. this represents reflection matrix."),
                 Self::Screw(e) => write!(f, "error while making transformation matrix. {e}"),
             }
