@@ -1498,9 +1498,13 @@ pub mod transformation {
                 [one_zero[2][0], one_zero[2][1], one_zero[2][2], self.rotation[2][0], self.rotation[2][1], self.rotation[2][2]],
             ])
         }
+
+        pub fn from_axis_and_angle(screw: Screw<T>, theta: T) -> Self {
+            (&(screw, theta)).into()
+        }
     }
 
-    impl<T: Float> From<&Screw<T>> for Transformation<T> {
+    impl<T: Float> From<&(Screw<T>, T)> for Transformation<T> {
         /// ### Example 2
         /// Rotation matrix is non zero. Theta here denotes the angle to be rotated about the axis
         /// **Note:** There is no need to check the validity of rotation matrix since angular component is of [Screw] is always normalized.
@@ -1510,10 +1514,10 @@ pub mod transformation {
         /// let screw = Screw::new(
         ///     Matrix::from([[0.], [1.], [0.]]),
         ///     Matrix::from([[-0.089], [0.], [0.]]),
-        ///     -core::f32::consts::PI / 2.,
         /// ).unwrap();
         ///
-        /// let transformation = Transformation::from(&screw);
+        /// let theta = -core::f32::consts::PI / 2.;
+        /// let transformation = Transformation::from(&(screw, theta));
         ///
         /// assert_eq!(transformation, Matrix::from([
         ///     [0., 0., -1., 0.089],
@@ -1524,7 +1528,7 @@ pub mod transformation {
         /// ```
         /// ### Example 2
         /// Rotation matrix is zero. Theta here denotes the times the linear component needs to be multiplied.
-        fn from(Screw { angular, linear, theta }: &Screw<T>) -> Self {
+        fn from((Screw { angular, linear }, theta): &(Screw<T>, T)) -> Self {
             // no movement
             let mut rotation = Matrix::new_identity();
             // infinite pitch
@@ -1816,7 +1820,7 @@ pub mod transformation {
         }
 
         /// creates [Twist] from [Screw] if screw represents transformation for a unit time
-        pub fn from_screw_for_unit_time(Screw { mut angular, mut linear, theta }: Screw<T>) -> Self {
+        pub fn from_screw_and_velocity(Screw { mut angular, mut linear}: Screw<T>, theta: T) -> Self {
             angular *= theta;
             linear *= theta;
             
@@ -1855,21 +1859,19 @@ pub mod transformation {
         }
     }
 
-    /// Denote screw transformation
-    /// Here $\theta$ is analogous to time.
+    /// Denote screw axis
     /// If [Twist] denote velocity, and if time is known, one can identify the [Transformation] from initial to final position.
-    /// [Screw] can be thought of another way of representing [Transformation].
+    /// [Screw] can be thought of another way of representing [Transformation] given the amount to rotate $\theta$.
     #[derive(Debug)]
     pub struct Screw<T: Float> {
         // one of angular and linear is normal
         angular: Matrix<3, 1, T>,
         linear: Matrix<3, 1, T>,
-        theta: T,
     }
 
     impl<T: Float> Screw<T> {
         /// Creates a new screw from angular and linear matrices and the given $\theta$.
-        pub fn new(angular: Matrix<3, 1, T>, linear: Matrix<3, 1, T>, theta: T) -> Result<Self> {
+        pub fn new(angular: Matrix<3, 1, T>, linear: Matrix<3, 1, T>) -> Result<Self> {
             if angular.is_zero() && !linear.has_normal_columns() {
                 return Err(Error::Screw(FromScrewError::TranslationAxisNotNormal));
             }
@@ -1880,12 +1882,19 @@ pub mod transformation {
             Ok(Self {
                 angular,
                 linear,
-                theta,
             })
         }
 
-        /// Creates [Screw] from [Twist] if twist is applied for unit time
-        pub fn from_twist_for_unit_time(Twist { mut angular, mut linear }: Twist<T>) -> Self {
+        /// Creates [Screw] from the given [Twist]
+        pub fn from_twist_for_unit_time(twist: Twist<T>) -> Self {
+            let (screw, _) = twist.into();
+            screw
+        }
+    }
+
+    impl<T: Float> From<Twist<T>> for (Screw<T>, T) {
+        /// Creates [Screw] and the amount rotated $\theta$ from [Twist] if applied for unit time
+        fn from(Twist { mut linear, mut angular }: Twist<T>) -> Self {
             if !linear.is_zero() {
                 let theta = match angular.is_zero() {
                     true => (0..3).map(|r| linear[r][0].norm_squared()).sum::<T>().sqrt(),
@@ -1898,19 +1907,12 @@ pub mod transformation {
 
                 linear /= theta;
                 
-                Self {
-                    angular,
-                    linear,
-                    theta,
-                }
+                (Screw { angular, linear }, theta)
             }
             else {
-                Self {
-                    angular,
-                    linear,
-                    theta: T::zero(),
-                }
+                (Screw { angular, linear }, T::zero())
             }
+
         }
     }
 
@@ -1929,13 +1931,13 @@ pub mod transformation {
     /// ])).unwrap();
     ///
     /// let b_list = [
-    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero(), 0.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060 + 0.3 + 0.55], [0.], [0.]]), PI / 4.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero(), 0.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060 + 0.3], [0.], [0.045]]), -PI / 4.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::from([[0.], [0.], [0.]]), 0.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060], [0.], [0.]]), -PI / 2.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::from([[0.], [0.], [0.]]), 0.).unwrap(),
+    ///     (Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero()).unwrap(), 0.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060 + 0.3 + 0.55], [0.], [0.]])).unwrap(), PI / 4.),
+    ///     (Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero()).unwrap(), 0.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060 + 0.3], [0.], [0.045]])).unwrap(), -PI / 4.),
+    ///     (Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::from([[0.], [0.], [0.]])).unwrap(), 0.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.060], [0.], [0.]])).unwrap(), -PI / 2.),
+    ///     (Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::from([[0.], [0.], [0.]])).unwrap(), 0.),
     /// ];
     ///
     /// let fk = forward_kinematice_in_body_frame(m, &b_list);
@@ -1949,7 +1951,7 @@ pub mod transformation {
     ///
     /// assert_eq!(fk, fk_prediction);
     /// ```
-    pub fn forward_kinematice_in_body_frame<T: Float>(m: Transformation<T>, b_list: &[Screw<T>]) -> Transformation<T> {
+    pub fn forward_kinematice_in_body_frame<T: Float>(m: Transformation<T>, b_list: &[(Screw<T>, T)]) -> Transformation<T> {
         b_list.iter().fold(m, |acc, s| acc * Transformation::from(s))
     }
 
@@ -1968,12 +1970,12 @@ pub mod transformation {
     /// ])).unwrap();
     ///
     /// let s_list = [
-    ///     Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero(), 0.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.]]), -PI / 2.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.425]]), 0.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.425 + 0.392]]), 0.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [0.], [-1.]]), Matrix::from([[-0.109], [0.425 + 0.392], [0.]]), PI / 2.).unwrap(),
-    ///     Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.095 - 0.089], [0.], [0.425 + 0.392]]), 0.).unwrap(),
+    ///     (Screw::new(Matrix::from([[0.], [0.], [1.]]), Matrix::new_zero()).unwrap(), 0.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.]])).unwrap(), -PI / 2.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.425]])).unwrap(), 0.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[-0.089], [0.], [0.425 + 0.392]])).unwrap(), 0.),
+    ///     (Screw::new(Matrix::from([[0.], [0.], [-1.]]), Matrix::from([[-0.109], [0.425 + 0.392], [0.]])).unwrap(), PI / 2.),
+    ///     (Screw::new(Matrix::from([[0.], [1.], [0.]]), Matrix::from([[0.095 - 0.089], [0.], [0.425 + 0.392]])).unwrap(), 0.),
     /// ];
     ///
     /// let fk = forward_kinematice_in_space_frame(m, &s_list);
@@ -1987,7 +1989,7 @@ pub mod transformation {
     ///
     /// assert_eq!(fk, fk_prediction);
     /// ```
-    pub fn forward_kinematice_in_space_frame<T: Float>(m: Transformation<T>, s_list: &[Screw<T>]) -> Transformation<T> {
+    pub fn forward_kinematice_in_space_frame<T: Float>(m: Transformation<T>, s_list: &[(Screw<T>, T)]) -> Transformation<T> {
         s_list.iter().rev().fold(m, |acc, s| Transformation::from(s) * acc)
     }
 
